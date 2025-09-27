@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 *.egg-info/
+*.pyc
 
 # Virtualenv
 .venv/
@@ -17,3 +18,5 @@ venv/
 
 # pytest
 .pytest_cache/
+
+playwright/.cache/
