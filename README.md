@@ -1,0 +1,6 @@
+# mi-fastapi-app
+API mínima con FastAPI.
+
+## ejecutar local
+pip install -r requirements.txt
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
