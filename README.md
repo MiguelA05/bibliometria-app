@@ -21,14 +21,25 @@ API para extracción de metadatos de artículos académicos usando OpenAlex, la 
 pip install -r requirements.txt
 ```
 
-### 2. Configurar Playwright (opcional)
+### 2. Configurar entorno
 ```bash
-python setup_playwright.py
+# Crear archivo de configuración
+cp env.example .env
+
+# O usar el script de inicio automático
+python start.py --setup
 ```
 
 ### 3. Ejecutar la aplicación
 ```bash
+# Opción 1: Script de inicio (recomendado)
+python start.py
+
+# Opción 2: Comando directo
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+# Opción 3: Con configuración personalizada
+python start.py --host 127.0.0.1 --port 8080 --reload
 ```
 
 ## Uso
@@ -63,6 +74,15 @@ python test_api.py
 
 # Pruebas unitarias
 python -m pytest tests/ -v
+
+# Solo ejecutar pruebas
+python start.py --test
+
+# Verificar salud del sistema
+curl http://localhost:8000/health
+
+# Ver métricas de rendimiento
+curl http://localhost:8000/metrics
 ```
 
 ## Documentación
@@ -73,16 +93,28 @@ python -m pytest tests/ -v
 
 ```
 app/
-├── api/endpoints.py              # Endpoints de la API
-├── models/article.py             # Modelos de datos para OpenAlex
+├── api/
+│   └── endpoints.py              # Endpoints de la API
+├── models/
+│   └── article.py                # Modelos de datos para OpenAlex
 ├── services/
 │   └── openalex_service.py       # Servicio OpenAlex
+├── utils/
+│   ├── logger.py                 # Sistema de logging estructurado
+│   ├── validators.py             # Validación robusta de entrada
+│   ├── exceptions.py             # Manejo de errores
+│   ├── metrics.py                # Métricas de rendimiento
+│   └── cache.py                  # Sistema de caché
+├── config.py                     # Configuración de la aplicación
 └── main.py                       # Aplicación principal
 
 tests/
 └── test_openalex_service.py      # Pruebas del servicio OpenAlex
 
 results/                          # Archivos CSV generados
+requirements.txt                  # Dependencias del proyecto
+env.example                       # Ejemplo de configuración
+start.py                          # Script de inicio mejorado
 ```
 
 ## Ventajas de OpenAlex
