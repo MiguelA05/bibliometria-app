@@ -2,9 +2,14 @@ import requests
 import re
 import pandas as pd
 import os
+import time
 from datetime import datetime
 from typing import List, Tuple, Optional, Dict, Any
 from app.models.article import ArticleMetadata
+from app.config import settings
+from app.utils.logger import get_logger, log_openalex_request, log_csv_export
+from app.utils.metrics import PerformanceTimer
+from app.utils.exceptions import OpenAlexError, CSVExportError, error_handler
 
 class OpenAlexService:
     """
@@ -19,12 +24,13 @@ class OpenAlexService:
         Args:
             email: Email para acceder al "polite pool" (recomendado)
         """
-        self.base_url = "https://api.openalex.org"
+        self.base_url = settings.openalex_base_url
         self.headers = {
-            'User-Agent': f'BibliometriaApp/1.0 (mailto:{email})' if email else 'BibliometriaApp/1.0'
+            'User-Agent': f'{settings.openalex_user_agent} (mailto:{email})' if email else settings.openalex_user_agent
         }
         self.session = requests.Session()
         self.session.headers.update(self.headers)
+        self.logger = get_logger("openalex_service")
     
     def search_works(self, query: str, max_articles: int = 10, 
                     filters: Optional[Dict[str, Any]] = None) -> Tuple[List[ArticleMetadata], str]:
@@ -42,14 +48,15 @@ class OpenAlexService:
         articles = []
         csv_file_path = ""
         
+        start_time = time.time()
+        
         try:
-            print(f"🔍 Buscando en OpenAlex: {query}")
+            self.logger.info(f"Searching OpenAlex: {query}")
             
             # Construir parámetros de búsqueda
             params = {
                 'search': query,
-                'per_page': min(max_articles, 200),  # OpenAlex permite hasta 200 por página
-                # Removido sort para evitar problemas con títulos y abstracts
+                'per_page': min(max_articles, settings.openalex_max_per_page),
             }
             
             # Agregar email solo si está disponible y es válido
@@ -63,18 +70,18 @@ class OpenAlexService:
                     params[key] = value
             
             # Realizar búsqueda
-            response = self.session.get(f"{self.base_url}/works", params=params, timeout=30)
+            response = self.session.get(f"{self.base_url}/works", params=params, timeout=settings.openalex_timeout)
             response.raise_for_status()
             
             data = response.json()
             works = data.get('results', [])
             
             if not works:
-                print("❌ No se encontraron resultados en OpenAlex")
+                self.logger.warning("No results found in OpenAlex", query=query)
+                log_openalex_request(query, max_articles, filters, time.time() - start_time, 0)
                 return articles, csv_file_path
             
-            print(f"📄 Encontrados {len(works)} resultados en OpenAlex")
-            print(f"🎯 Procesando hasta {max_articles} artículos...")
+            self.logger.info(f"Found {len(works)} results in OpenAlex", query=query)
             
             # Procesar cada trabajo
             for i, work in enumerate(works[:max_articles]):
@@ -82,20 +89,32 @@ class OpenAlexService:
                     article = self._process_work(work)
                     if article:
                         articles.append(article)
-                        print(f"✅ Artículo {len(articles)} procesado: {article.title[:50]}...")
+                        self.logger.debug(f"Processed article {len(articles)}: {article.title[:50]}...")
                 except Exception as e:
-                    print(f"❌ Error procesando artículo {i+1}: {e}")
+                    self.logger.error(f"Error processing article {i+1}: {e}")
                     continue
             
+            # Log de éxito
+            response_time = time.time() - start_time
+            log_openalex_request(query, max_articles, filters, response_time, len(articles))
+            
         except requests.exceptions.RequestException as e:
-            print(f"❌ Error de conexión con OpenAlex: {e}")
+            response_time = time.time() - start_time
+            log_openalex_request(query, max_articles, filters, response_time, 0, str(e))
+            raise error_handler.handle_openalex_error(e, query)
         except Exception as e:
-            print(f"❌ Error general en OpenAlex: {e}")
+            response_time = time.time() - start_time
+            log_openalex_request(query, max_articles, filters, response_time, 0, str(e))
+            raise error_handler.handle_unexpected_error(e, "search_works")
         
         # Exportar a CSV si hay artículos
         if articles:
-            csv_file_path = self._export_to_csv(articles, query)
-            print(f"📊 Datos exportados a: {csv_file_path}")
+            try:
+                csv_file_path = self._export_to_csv(articles, query)
+                log_csv_export(csv_file_path, len(articles), query)
+            except Exception as e:
+                log_csv_export("", len(articles), query, str(e))
+                raise error_handler.handle_csv_export_error(e)
         
         return articles, csv_file_path
     
@@ -401,7 +420,7 @@ class OpenAlexService:
         """
         try:
             # Crear directorio de resultados
-            results_dir = "results"
+            results_dir = settings.results_dir
             if not os.path.exists(results_dir):
                 os.makedirs(results_dir)
             
@@ -442,14 +461,14 @@ class OpenAlexService:
             
             # Exportar CSV
             df = pd.DataFrame(articles_data)
-            df.to_csv(file_path, index=False, encoding='utf-8-sig')
+            df.to_csv(file_path, index=False, encoding=settings.csv_encoding)
             
-            print(f"✅ Exportados {len(articles)} artículos a {file_path}")
+            self.logger.info(f"Exported {len(articles)} articles to {file_path}")
             return file_path
             
         except Exception as e:
-            print(f"❌ Error al exportar CSV: {e}")
-            return ""
+            self.logger.error(f"Error exporting CSV: {e}")
+            raise CSVExportError(f"Error al exportar CSV: {e}", file_path)
 
 # Función de conveniencia para mantener compatibilidad
 def fetch_articles_metadata_openalex(search_query: str, max_articles: int = 10, 
