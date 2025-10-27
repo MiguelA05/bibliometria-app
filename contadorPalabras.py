@@ -9,7 +9,7 @@ Usa desde la línea de comandos:
 O importa y llama a `print_field_in_place` desde otro módulo.
 """
 
-from typing import Optional
+from typing import Optional, Union
 
 from resultsUtil import iterate_field_records, get_unified_path, read_unified
 from collections import Counter
@@ -50,11 +50,14 @@ def print_field_in_place(field: str, limit: Optional[int] = None) -> None:
         iterate_field_records(field, processor)
 
 
-def get_top_words_from_abstracts(top_n: int = 15,
+def get_top_words_from_fields(field: Union[str, int] = 'abstract',
+                                 top_n: int = 15,
                                  stopwords: Optional[set] = None,
-                                 min_word_length: int = 2) -> list:
-    """Devuelve las top-N palabras más frecuentes en la columna 'abstract'.
+                                 min_word_length: int = 2) -> list[tuple[str, int]]:
+    """Devuelve las top-N palabras más frecuentes en la columna indicada.
 
+    Parámetros:
+    - field: nombre de la columna (str) o índice (int). Por defecto 'abstract'.
     - top_n: número de palabras a devolver (por defecto 15).
     - stopwords: conjunto de palabras a ignorar. Si es None se usa DEFAULT_STOPWORDS.
     - min_word_length: longitud mínima para considerar una palabra.
@@ -75,13 +78,22 @@ def get_top_words_from_abstracts(top_n: int = 15,
 
     header = rows[0]
     lowered = [h.lower() for h in header]
-    if 'abstract' in header:
-        idx = header.index('abstract')
-    elif 'abstract' in lowered:
-        idx = lowered.index('abstract')
+
+    # Determinar índice de la columna según parámetro `field` (soporta int o str)
+    if isinstance(field, int):
+        idx = field
+        if idx < 0 or idx >= len(header):
+            print(f"Índice de columna fuera de rango: {idx}")
+            return []
     else:
-        print("Columna 'abstract' no encontrada en el CSV.")
-        return []
+        # buscar por nombre (case-insensitive)
+        if field in header:
+            idx = header.index(field)
+        elif field.lower() in lowered:
+            idx = lowered.index(field.lower())
+        else:
+            print(f"Columna '{field}' no encontrada. Columnas disponibles: {header}")
+            return []
 
     counter = Counter()
     word_re = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ]+")
@@ -103,8 +115,7 @@ def get_top_words_from_abstracts(top_n: int = 15,
 
 if __name__ == "__main__":
     # Demo: imprime los títulos y las top-15 palabras en abstracts
-    print_field_in_place('title', limit=10)
     print('\nTop palabras en abstracts:')
-    top = get_top_words_from_abstracts(15)
+    top = get_top_words_from_fields(top_n=15)
     for word, cnt in top:
         print(f"{word}: {cnt}")
