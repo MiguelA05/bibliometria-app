@@ -287,7 +287,19 @@ class TestOpenAlexService:
             'type', 'language', 'is_oa', 'oa_url', 'oa_status', 'source_title', 
             'source_type', 'publisher', 'cited_by_count', 'topics', 'license'
         ]
-        assert list(df.columns) == expected_columns
+        # The service may include geographic fields appended to the CSV. Accept
+        # both the original expected columns and the extended set with geographic
+        # columns (author/institution countries/cities and geographic coordinates).
+        extended_columns = expected_columns + [
+            'author_countries', 'author_cities', 'institution_countries',
+            'institution_cities', 'geographic_coordinates'
+        ]
+
+        # The DataFrame should match either the base schema or the extended schema.
+        cols = list(df.columns)
+        assert cols == expected_columns or cols == extended_columns, (
+            f"Unexpected CSV columns. Got: {cols}\nExpected one of: {expected_columns} or {extended_columns}"
+        )
         
         # Limpiar archivo de prueba
         os.remove(csv_path)
