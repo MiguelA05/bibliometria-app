@@ -34,3 +34,11 @@ class ArticleMetadata(BaseModel):
     
     # Información de licencia
     license: Optional[str] = None
+    source: Optional[str] = None  # Fuente de datos (OpenAlex_General, etc.)
+    
+    # Información geográfica
+    author_countries: Optional[List[str]] = None  # Países de los autores
+    author_cities: Optional[List[str]] = None     # Ciudades de los autores
+    institution_countries: Optional[List[str]] = None  # Países de las instituciones
+    institution_cities: Optional[List[str]] = None     # Ciudades de las instituciones
+    geographic_coordinates: Optional[List[Dict[str, Any]]] = None  # Coordenadas lat/lng

@@ -330,3 +330,7 @@ def get_cached_openalex_result(
 
 # Instancia global del gestor de caché
 cache_manager = CacheManager()
+
+
+
+

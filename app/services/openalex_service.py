@@ -3,6 +3,7 @@ import re
 import pandas as pd
 import os
 import time
+import json
 from datetime import datetime
 from typing import List, Tuple, Optional, Dict, Any
 from app.models.article import ArticleMetadata
@@ -10,6 +11,7 @@ from app.config import settings
 from app.utils.logger import get_logger, log_openalex_request, log_csv_export
 from app.utils.metrics import PerformanceTimer
 from app.utils.exceptions import OpenAlexError, CSVExportError, error_handler
+from app.services.geographic_service import GeographicDataService
 
 class OpenAlexService:
     """
@@ -31,6 +33,7 @@ class OpenAlexService:
         self.session = requests.Session()
         self.session.headers.update(self.headers)
         self.logger = get_logger("openalex_service")
+        self.geographic_service = GeographicDataService()
     
     def search_works(self, query: str, max_articles: int = 10, 
                     filters: Optional[Dict[str, Any]] = None) -> Tuple[List[ArticleMetadata], str]:
@@ -177,6 +180,9 @@ class OpenAlexService:
             # Extraer metadatos bibliográficos
             biblio = self._extract_biblio_info(work)
             
+            # Extraer datos geográficos
+            geographic_data = self.geographic_service.extract_geographic_data(work)
+            
             # Crear objeto ArticleMetadata
             article = ArticleMetadata(
                 # Campos básicos
@@ -210,7 +216,14 @@ class OpenAlexService:
                 topics=topics,
                 
                 # Información de licencia
-                license=work.get('license')
+                license=work.get('license'),
+                
+                # Información geográfica
+                author_countries=geographic_data.get('author_countries'),
+                author_cities=geographic_data.get('author_cities'),
+                institution_countries=geographic_data.get('institution_countries'),
+                institution_cities=geographic_data.get('institution_cities'),
+                geographic_coordinates=geographic_data.get('geographic_coordinates')
             )
             
             return article
@@ -419,17 +432,19 @@ class OpenAlexService:
             Ruta del archivo CSV
         """
         try:
-            # Crear directorio de resultados
-            results_dir = settings.results_dir
-            if not os.path.exists(results_dir):
-                os.makedirs(results_dir)
+            # Crear estructura de directorios organizada
+            base_dir = settings.results_dir
+            raw_data_dir = os.path.join(base_dir, "raw_data")
+            
+            # Crear directorio si no existe
+            os.makedirs(raw_data_dir, exist_ok=True)
             
             # Generar nombre de archivo
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             safe_query = re.sub(r'[^\w\s-]', '', search_query).strip()
             safe_query = re.sub(r'[-\s]+', '_', safe_query)
             filename = f"resultados_openalex_{safe_query}_{timestamp}.csv"
-            file_path = os.path.join(results_dir, filename)
+            file_path = os.path.join(raw_data_dir, filename)
             
             # Convertir a DataFrame
             articles_data = []
@@ -455,7 +470,14 @@ class OpenAlexService:
                     'publisher': article.publisher,
                     'cited_by_count': article.cited_by_count,
                     'topics': '; '.join(article.topics) if article.topics else '',
-                    'license': article.license
+                    'license': article.license,
+                    
+                    # Datos geográficos
+                    'author_countries': '; '.join(article.author_countries) if article.author_countries else '',
+                    'author_cities': '; '.join(article.author_cities) if article.author_cities else '',
+                    'institution_countries': '; '.join(article.institution_countries) if article.institution_countries else '',
+                    'institution_cities': '; '.join(article.institution_cities) if article.institution_cities else '',
+                    'geographic_coordinates': json.dumps(article.geographic_coordinates) if article.geographic_coordinates else ''
                 }
                 articles_data.append(article_dict)
             

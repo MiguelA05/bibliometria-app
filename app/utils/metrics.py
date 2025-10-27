@@ -237,3 +237,7 @@ def check_rate_limit(identifier: str) -> bool:
 def get_remaining_requests(identifier: str) -> int:
     """Obtener peticiones restantes."""
     return rate_limiter.get_remaining_requests(identifier)
+
+
+
+

@@ -8,9 +8,13 @@ from app.utils.logger import get_logger, log_api_request
 from app.utils.metrics import PerformanceTimer, check_rate_limit, get_remaining_requests
 from app.utils.exceptions import ValidationError, RateLimitError, convert_to_http_exception
 from app.utils.cache import get_cached_openalex_result, cache_openalex_result
+from app.services.data_unification_service import DataUnificationService
+from app.services.geographic_service import GeographicDataService
+from app.config import settings
 from datetime import datetime
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
+import os
 
 router = APIRouter()
 logger = get_logger("endpoints")
@@ -24,6 +28,12 @@ class UniversitySearchRequest(BaseModel):
     max_articles: int = 10
     email: Optional[str] = None
     filters: Optional[Dict[str, Any]] = None
+
+class AutomationRequest(BaseModel):
+    """Modelo para solicitudes de automatización."""
+    base_query: str = "generative artificial intelligence"
+    similarity_threshold: float = 0.8
+    max_articles_per_source: int = 50
 
 @router.post("/api/v1/fetch-metadata")
 async def fetch_metadata(request: SearchRequest, http_request: Request):
@@ -282,6 +292,258 @@ async def fetch_generative_ai_research(request: UniversitySearchRequest, http_re
                     "error": True,
                     "error_code": "UNIVERSITY_PROJECT_ERROR",
                     "message": f"Error en proyecto Universidad del Quindío: {str(e)}",
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+            )
+
+@router.post("/api/v1/automation/unified-data")
+async def automated_data_unification(request: AutomationRequest, http_request: Request):
+    """
+    Endpoint para automatización completa de descarga y unificación de datos.
+    Descarga de múltiples fuentes, elimina duplicados y genera archivos unificados.
+    """
+    client_ip = get_client_ip(http_request)
+    
+    # Log de la petición
+    log_api_request(
+        endpoint="/api/v1/automation/unified-data",
+        method="POST",
+        query=request.base_query,
+        max_articles=request.max_articles_per_source,
+        email=None,
+        filters={"similarity_threshold": request.similarity_threshold}
+    )
+    
+    # Verificar límite de velocidad
+    if not check_rate_limit(client_ip):
+        remaining = get_remaining_requests(client_ip)
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error": True,
+                "error_code": "RATE_LIMIT_ERROR",
+                "message": "Límite de velocidad excedido",
+                "retry_after": 60,
+                "remaining_requests": remaining
+            }
+        )
+    
+    # Medir rendimiento
+    with PerformanceTimer("automated_unification") as timer:
+        try:
+            timer.add_data("base_query", request.base_query)
+            timer.add_data("similarity_threshold", request.similarity_threshold)
+            timer.add_data("max_articles_per_source", request.max_articles_per_source)
+            timer.add_data("client_ip", client_ip)
+            
+            # Inicializar servicio de unificación
+            unification_service = DataUnificationService()
+            
+            # Ejecutar proceso automatizado
+            result = unification_service.run_automated_process(
+                base_query=request.base_query,
+                similarity_threshold=request.similarity_threshold,
+                max_articles_per_source=request.max_articles_per_source
+            )
+            
+            if not result['success']:
+                raise Exception(result.get('error', 'Unknown error in automation process'))
+            
+            # Preparar respuesta
+            response_data = {
+                "automation_result": {
+                    "success": True,
+                    "process_type": "Multi-source data download and unification",
+                    "base_query": request.base_query,
+                    "similarity_threshold": request.similarity_threshold
+                },
+                "data_statistics": {
+                    "total_articles_downloaded": result['total_articles_downloaded'],
+                    "unique_articles": result['unique_articles'],
+                    "duplicates_removed": result['duplicates_removed'],
+                    "sources_processed": result['sources_processed'],
+                    "duplication_rate": f"{(result['duplicates_removed'] / result['total_articles_downloaded'] * 100):.1f}%" if result['total_articles_downloaded'] > 0 else "0%"
+                },
+                "generated_files": {
+                    "unified_file": result['unified_file'],
+                    "duplicates_file": result['duplicates_file'],
+                    "unified_file_size": f"{os.path.getsize(result['unified_file']) / 1024:.1f} KB" if os.path.exists(result['unified_file']) else "N/A",
+                    "duplicates_file_size": f"{os.path.getsize(result['duplicates_file']) / 1024:.1f} KB" if os.path.exists(result['duplicates_file']) else "N/A"
+                },
+                "performance": {
+                    "processing_time_seconds": result['processing_time_seconds'],
+                    "articles_per_second": f"{result['total_articles_downloaded'] / result['processing_time_seconds']:.2f}" if result['processing_time_seconds'] > 0 else "0"
+                },
+                "metadata": {
+                    "timestamp": result['timestamp'],
+                    "cache_hit": False,
+                    "automation_completed": True
+                }
+            }
+            
+            timer.add_data("total_articles", result['total_articles_downloaded'])
+            timer.add_data("unique_articles", result['unique_articles'])
+            timer.add_data("duplicates_removed", result['duplicates_removed'])
+            timer.add_data("processing_time", result['processing_time_seconds'])
+            
+            logger.info(
+                "Automated unification completed",
+                total_articles=result['total_articles_downloaded'],
+                unique_articles=result['unique_articles'],
+                duplicates_removed=result['duplicates_removed'],
+                processing_time=result['processing_time_seconds'],
+                client_ip=client_ip
+            )
+            
+            return response_data
+            
+        except Exception as e:
+            logger.error(
+                "Automated unification error",
+                error=str(e),
+                base_query=request.base_query,
+                client_ip=client_ip
+            )
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error": True,
+                    "error_code": "AUTOMATION_ERROR",
+                    "message": f"Error en proceso de automatización: {str(e)}",
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+            )
+
+@router.post("/api/v1/geographic/heatmap-data")
+async def get_geographic_heatmap_data(request: SearchRequest, http_request: Request):
+    """
+    Endpoint específico para obtener datos geográficos optimizados para mapas de calor.
+    """
+    client_ip = get_client_ip(http_request)
+    
+    # Log de la petición
+    log_api_request(
+        endpoint="/api/v1/geographic/heatmap-data",
+        method="POST",
+        query=request.query,
+        max_articles=request.max_articles,
+        email=request.email,
+        filters=request.filters
+    )
+    
+    # Verificar límite de velocidad
+    if not check_rate_limit(client_ip):
+        remaining = get_remaining_requests(client_ip)
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error": True,
+                "error_code": "RATE_LIMIT_ERROR",
+                "message": "Límite de velocidad excedido",
+                "retry_after": 60,
+                "remaining_requests": remaining
+            }
+        )
+    
+    # Medir rendimiento
+    with PerformanceTimer("geographic_heatmap") as timer:
+        try:
+            timer.add_data("query", request.query)
+            timer.add_data("max_articles", request.max_articles)
+            timer.add_data("client_ip", client_ip)
+            
+            # Validar parámetros
+            validated_params = validate_search_parameters(
+                query=request.query,
+                max_articles=request.max_articles,
+                email=request.email,
+                filters=request.filters
+            )
+            
+            # Realizar búsqueda
+            articles, csv_file_path = fetch_articles_metadata_openalex(
+                search_query=validated_params["query"],
+                max_articles=validated_params["max_articles"],
+                email=validated_params["email"],
+                filters=validated_params["filters"]
+            )
+            
+            # Generar resumen geográfico
+            geographic_service = GeographicDataService()
+            geographic_summary = geographic_service.get_geographic_summary(articles)
+            
+            # Crear archivo específico para mapas de calor
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            safe_query = request.query.replace(" ", "_").replace("/", "_")
+            heatmap_filename = f"heatmap_data_{safe_query}_{timestamp}.csv"
+            
+            # Crear directorio para datos geográficos
+            geographic_dir = os.path.join(settings.results_dir, "geographic")
+            os.makedirs(geographic_dir, exist_ok=True)
+            
+            heatmap_file_path = os.path.join(geographic_dir, heatmap_filename)
+            geographic_service.export_geographic_data(articles, heatmap_file_path)
+            
+            # Preparar respuesta
+            response_data = {
+                "geographic_analysis": {
+                    "query": request.query,
+                    "total_articles": len(articles),
+                    "geographic_coverage": geographic_summary['geographic_coverage'],
+                    "countries_covered": geographic_summary['countries_count'],
+                    "cities_covered": geographic_summary['cities_count'],
+                    "coordinates_available": geographic_summary['coordinates_count']
+                },
+                "heatmap_data": {
+                    "file_path": heatmap_file_path,
+                    "file_size": f"{os.path.getsize(heatmap_file_path) / 1024:.1f} KB",
+                    "format": "CSV with lat/lng coordinates",
+                    "compatible_tools": ["Folium", "Plotly", "GeoPandas", "Kepler.gl", "Leaflet", "D3.js"]
+                },
+                "geographic_statistics": {
+                    "top_countries": geographic_summary['top_countries'][:10],
+                    "top_cities": geographic_summary['top_cities'][:10],
+                    "coverage_percentage": {
+                        "articles_with_countries": f"{(geographic_summary['geographic_coverage']['articles_with_countries'] / len(articles) * 100):.1f}%" if articles else "0%",
+                        "articles_with_cities": f"{(geographic_summary['geographic_coverage']['articles_with_cities'] / len(articles) * 100):.1f}%" if articles else "0%",
+                        "articles_with_coordinates": f"{(geographic_summary['geographic_coverage']['articles_with_coordinates'] / len(articles) * 100):.1f}%" if articles else "0%"
+                    }
+                },
+                "metadata": {
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "cache_hit": False,
+                    "geographic_analysis_completed": True
+                }
+            }
+            
+            timer.add_data("articles_processed", len(articles))
+            timer.add_data("countries_found", geographic_summary['countries_count'])
+            timer.add_data("coordinates_found", geographic_summary['coordinates_count'])
+            
+            logger.info(
+                "Geographic heatmap data generated",
+                query=request.query,
+                articles=len(articles),
+                countries=geographic_summary['countries_count'],
+                coordinates=geographic_summary['coordinates_count'],
+                client_ip=client_ip
+            )
+            
+            return response_data
+            
+        except Exception as e:
+            logger.error(
+                "Geographic heatmap data error",
+                error=str(e),
+                query=request.query,
+                client_ip=client_ip
+            )
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error": True,
+                    "error_code": "GEOGRAPHIC_ERROR",
+                    "message": f"Error generando datos geográficos: {str(e)}",
                     "timestamp": datetime.utcnow().isoformat()
                 }
             )

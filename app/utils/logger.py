@@ -156,3 +156,7 @@ def log_performance_metrics(
 
 # Configurar logging al importar el módulo
 configure_logging()
+
+
+
+
