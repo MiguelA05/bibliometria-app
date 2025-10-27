@@ -12,7 +12,7 @@ from app.services.data_unification_service import DataUnificationService
 from app.config import settings
 from datetime import datetime
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import os
 
 router = APIRouter()
@@ -33,6 +33,12 @@ class AutomationRequest(BaseModel):
     base_query: str = "generative artificial intelligence"
     similarity_threshold: float = 0.8
     max_articles_per_source: int = 50
+
+class TextSimilarityRequest(BaseModel):
+    """Modelo para análisis de similitud textual."""
+    csv_file_path: str
+    article_indices: List[int]
+    algorithms: Optional[List[str]] = None
 
 @router.post("/api/v1/fetch-metadata")
 async def fetch_metadata(request: SearchRequest, http_request: Request):
@@ -412,3 +418,84 @@ async def automated_data_unification(request: AutomationRequest, http_request: R
                     "timestamp": datetime.utcnow().isoformat()
                 }
             )
+
+@router.post("/api/v1/text-similarity/analyze")
+async def analyze_text_similarity(request: TextSimilarityRequest, http_request: Request):
+    """Analizar similitud textual de abstracts usando 6 algoritmos."""
+    from app.services.text_similarity_service import TextSimilarityService
+    from app.utils.text_extractor import TextExtractor
+    
+    client_ip = get_client_ip(http_request)
+    
+    try:
+        logger.info("Text similarity requested", csv=request.csv_file_path, articles=request.article_indices)
+        
+        if not os.path.exists(request.csv_file_path):
+            raise HTTPException(status_code=404, detail={"error": "CSV not found"})
+        
+        extractor = TextExtractor()
+        df = extractor.read_unified_csv(request.csv_file_path)
+        articles_data = extractor.extract_abstracts(df, request.article_indices)
+        
+        if len(articles_data) < 2:
+            raise HTTPException(status_code=400, detail={"error": "Need at least 2 articles"})
+        
+        similarity_service = TextSimilarityService()
+        texts = [article['abstract'] for article in articles_data]
+        results = similarity_service.analyze_texts_similarity(texts)
+        
+        # Convertir detalles a tipos serializables
+        def make_serializable(obj):
+            """Convertir objetos numpy y otros tipos no serializables a tipos nativos."""
+            import numpy as np
+            
+            if isinstance(obj, np.ndarray):
+                return obj.tolist()
+            elif isinstance(obj, np.integer):
+                return int(obj)
+            elif isinstance(obj, np.floating):
+                return float(obj)
+            elif isinstance(obj, dict):
+                return {k: make_serializable(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [make_serializable(item) for item in obj]
+            return obj
+        
+        response_data = {
+            "articles": [{"index": int(a['index']), "title": str(a['title'])} for a in articles_data],
+            "results": [
+                {
+                    "algorithm": str(r.algorithm_name),
+                    "score": float(r.similarity_score),
+                    "explanation": str(r.explanation),
+                    "details": make_serializable(r.details),
+                    "time": float(r.processing_time)
+                }
+                for r in results
+            ],
+            "summary": {
+                "algorithms_used": int(len(set(r.algorithm_name for r in results))),
+                "avg_similarity": float(sum(r.similarity_score for r in results) / len(results)) if results else 0.0
+            }
+        }
+        
+        logger.info("Text similarity completed", results=len(results))
+        return response_data
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in text similarity: {e}")
+        raise HTTPException(status_code=500, detail={"error": str(e)})
+
+@router.get("/api/v1/text-similarity/csv-list")
+async def list_unified_csvs():
+    """Listar CSVs unificados disponibles."""
+    from app.utils.text_extractor import get_unified_csv_list
+    
+    try:
+        csv_files = get_unified_csv_list()
+        return {"csvs": csv_files, "total": len(csv_files)}
+    except Exception as e:
+        logger.error(f"Error listing CSVs: {e}")
+        raise HTTPException(status_code=500, detail={"error": str(e)})
