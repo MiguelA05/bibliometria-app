@@ -4,18 +4,21 @@ Script de prueba para el sistema de automatización de descarga y unificación d
 Prueba el endpoint de automatización que descarga de múltiples fuentes y elimina duplicados.
 """
 
+import argparse
 import requests
 import json
 import time
 import os
+import sys
+from pathlib import Path
 
-def test_automation_endpoint():
+def test_automation_endpoint(base_url: str, results_dir: str, timeout: int = 120) -> bool:
     """Probar el endpoint de automatización."""
     print("🤖 PRUEBA SISTEMA DE AUTOMATIZACIÓN")
     print("=" * 60)
     
     try:
-        url = "http://127.0.0.1:8000/api/v1/automation/unified-data"
+        url = f"{base_url.rstrip('/')}/api/v1/automation/unified-data"
         data = {
             "base_query": "generative artificial intelligence",
             "similarity_threshold": 0.8,
@@ -28,9 +31,10 @@ def test_automation_endpoint():
         
         # Medir tiempo de respuesta
         start_time = time.time()
-        response = requests.post(url, json=data, timeout=120)  # Timeout más largo
+        session = requests.Session()
+        response = session.post(url, json=data, timeout=timeout)  # Timeout configurable
         end_time = time.time()
-        
+
         print(f"⏱️ Tiempo de respuesta: {end_time - start_time:.2f} segundos")
         
         if response.status_code == 200:
@@ -67,9 +71,26 @@ def test_automation_endpoint():
             print(f"   Tiempo de procesamiento: {performance.get('processing_time_seconds')} segundos")
             print(f"   Artículos por segundo: {performance.get('articles_per_second')}")
             
-            # Verificar archivos generados
+            # Verificar archivos generados (convertir rutas relativas a absolutas respecto a project root)
             unified_file = generated_files.get('unified_file')
             duplicates_file = generated_files.get('duplicates_file')
+
+            # Normalizar paths y buscar en results_dir si no se entregó ruta absoluta
+            def _resolve_file(path_val: str) -> str:
+                if not path_val:
+                    return ""
+                p = Path(path_val)
+                if p.is_absolute():
+                    return str(p)
+                # Buscar en results_dir
+                candidate = Path(results_dir) / p
+                if candidate.exists():
+                    return str(candidate)
+                # fallback: return original string
+                return str(p)
+
+            unified_file = _resolve_file(unified_file)
+            duplicates_file = _resolve_file(duplicates_file)
             
             if unified_file and os.path.exists(unified_file):
                 print(f"\n✅ Archivo unificado encontrado: {unified_file}")
@@ -141,13 +162,13 @@ def test_automation_endpoint():
         print(f"❌ Error inesperado: {e}")
         return False
 
-def test_different_thresholds():
+def test_different_thresholds(base_url: str, timeout: int = 60):
     """Probar diferentes umbrales de similitud."""
     print("\n🔍 PROBANDO DIFERENTES UMBRALES DE SIMILITUD")
     print("=" * 50)
     
     thresholds = [0.6, 0.7, 0.8, 0.9]
-    url = "http://127.0.0.1:8000/api/v1/automation/unified-data"
+    url = f"{base_url.rstrip('/')}/api/v1/automation/unified-data"
     
     for threshold in thresholds:
         try:
@@ -158,7 +179,7 @@ def test_different_thresholds():
             }
             
             print(f"🎯 Probando umbral: {threshold}")
-            response = requests.post(url, json=data, timeout=60)
+            response = requests.post(url, json=data, timeout=timeout)
             
             if response.status_code == 200:
                 result = response.json()
@@ -174,15 +195,24 @@ def test_different_thresholds():
 
 def main():
     """Función principal."""
+    parser = argparse.ArgumentParser(description="Script de prueba de automatización")
+    parser.add_argument("--base-url", default="http://127.0.0.1:8000", help="Base URL de la API")
+    parser.add_argument("--results-dir", default="results", help="Directorio donde se esperan/guardan los CSV")
+    parser.add_argument("--timeout", type=int, default=120, help="Timeout en segundos para las peticiones")
+    args = parser.parse_args()
+
     print("🤖 PRUEBA COMPLETA - SISTEMA DE AUTOMATIZACIÓN")
     print("Descarga Multi-fuente + Eliminación de Duplicados + Archivos Unificados")
     print("=" * 70)
-    
+
+    # Asegurar directorio de resultados
+    Path(args.results_dir).mkdir(parents=True, exist_ok=True)
+
     # Probar endpoint principal
-    main_test_ok = test_automation_endpoint()
-    
+    main_test_ok = test_automation_endpoint(args.base_url, args.results_dir, timeout=args.timeout)
+
     # Probar diferentes umbrales
-    test_different_thresholds()
+    test_different_thresholds(args.base_url, timeout=min(60, args.timeout))
     
     # Resumen
     print("\n" + "=" * 70)
@@ -202,6 +232,7 @@ def main():
         print("   ✅ Endpoint: /api/v1/automation/unified-data")
     else:
         print("💥 Algunas pruebas fallaron")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

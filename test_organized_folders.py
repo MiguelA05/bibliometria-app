@@ -1,38 +1,53 @@
 #!/usr/bin/env python3
 """
 Script para mostrar la estructura de carpetas organizadas y probar el sistema de automatización.
+
+Este script es un pequeño runner (no un test de pytest) que:
+ - espera a que la API responda en /health
+ - llama al endpoint de automatización y al endpoint universitario
+ - muestra y verifica los archivos generados en `results/`
+
+Usar:
+    python test_organized_folders.py
+
+Asegúrate de tener la API corriendo (por ejemplo con `python start.py --start` en otra terminal)
 """
 
 import os
 import requests
 import json
 import time
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[0]
+RESULTS_DIR = PROJECT_ROOT / "results"
+
 
 def show_folder_structure():
     """Mostrar la estructura de carpetas de resultados."""
     print("📁 ESTRUCTURA DE CARPETAS ORGANIZADAS")
     print("=" * 50)
-    
-    base_dir = "results"
-    
-    if not os.path.exists(base_dir):
+
+    base_dir = RESULTS_DIR
+
+    if not base_dir.exists():
         print("❌ Directorio results no existe aún")
         return
-    
+
     print(f"📂 {base_dir}/")
-    
+
     # Mostrar estructura de carpetas
     for root, dirs, files in os.walk(base_dir):
-        level = root.replace(base_dir, '').count(os.sep)
-        indent = ' ' * 2 * level
+        level = Path(root).relative_to(base_dir).parts
+        indent = ' ' * 2 * (len(level))
         print(f"{indent}📁 {os.path.basename(root)}/")
-        
-        subindent = ' ' * 2 * (level + 1)
+
+        subindent = ' ' * 2 * (len(level) + 1)
         for file in files:
             file_size = os.path.getsize(os.path.join(root, file))
             size_kb = file_size / 1024
             print(f"{subindent}📄 {file} ({size_kb:.1f} KB)")
-    
+
     print()
 
 def test_automation_with_organized_folders():
@@ -41,6 +56,17 @@ def test_automation_with_organized_folders():
     print("=" * 60)
     
     try:
+        # Ensure server is responding before calling
+        health_url = "http://127.0.0.1:8000/health"
+        start = time.time()
+        while time.time() - start < 10:
+            try:
+                h = requests.get(health_url, timeout=2)
+                if h.status_code == 200:
+                    break
+            except requests.RequestException:
+                time.sleep(0.5)
+
         url = "http://127.0.0.1:8000/api/v1/automation/unified-data"
         data = {
             "base_query": "generative artificial intelligence",
@@ -60,15 +86,44 @@ def test_automation_with_organized_folders():
         if response.status_code == 200:
             result = response.json()
             print(f"✅ Sistema de automatización respondió correctamente!")
-            
+
             # Mostrar archivos generados
             generated_files = result.get('generated_files', {})
+            unified_file = generated_files.get('unified_file')
+            duplicates_file = generated_files.get('duplicates_file')
+            unified_size = generated_files.get('unified_file_size') or generated_files.get('unified_file_size_kb')
+            duplicates_size = generated_files.get('duplicates_file_size') or generated_files.get('duplicates_file_size_kb')
+
             print(f"\n📁 ARCHIVOS GENERADOS EN CARPETAS ORGANIZADAS:")
-            print(f"   📄 Archivo unificado: {generated_files.get('unified_file')}")
-            print(f"   📄 Archivo de duplicados: {generated_files.get('duplicates_file')}")
-            print(f"   📊 Tamaño archivo unificado: {generated_files.get('unified_file_size')}")
-            print(f"   📊 Tamaño archivo duplicados: {generated_files.get('duplicates_file_size')}")
-            
+            print(f"   📄 Archivo unificado: {unified_file}")
+            print(f"   📄 Archivo de duplicados: {duplicates_file}")
+            print(f"   📊 Tamaño archivo unificado: {unified_size}")
+            print(f"   📊 Tamaño archivo duplicados: {duplicates_size}")
+
+            # Resolve and check existence (try absolute and results/ locations)
+            def resolve_path(p):
+                if not p:
+                    return None
+                p = Path(p)
+                if p.exists():
+                    return p
+                # try relative to project results
+                p2 = RESULTS_DIR / p.name
+                if p2.exists():
+                    return p2
+                # try relative to project root
+                p3 = PROJECT_ROOT / p
+                if p3.exists():
+                    return p3
+                return None
+
+            u_path = resolve_path(unified_file)
+            d_path = resolve_path(duplicates_file)
+
+            print(f"   ✅ Unified file exists: {bool(u_path)} -> {u_path}")
+            print(f"   ✅ Duplicates file exists: {bool(d_path)} -> {d_path}")
+
+
             # Mostrar estadísticas
             data_stats = result.get('data_statistics', {})
             print(f"\n📊 ESTADÍSTICAS:")
@@ -77,7 +132,7 @@ def test_automation_with_organized_folders():
             print(f"   Duplicados eliminados: {data_stats.get('duplicates_removed')}")
             print(f"   Fuentes procesadas: {data_stats.get('sources_processed')}")
             print(f"   Tasa de duplicación: {data_stats.get('duplication_rate')}")
-            
+
             return True
             
         else:
