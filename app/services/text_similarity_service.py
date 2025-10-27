@@ -17,7 +17,7 @@ try:
     from sklearn.feature_extraction.text import TfidfVectorizer
     from sklearn.metrics.pairwise import cosine_similarity
 except ImportError:
-    print("⚠️ scikit-learn no está instalado. Algunos algoritmos no estarán disponibles.")
+    print("[WARNING] scikit-learn no está instalado. Algunos algoritmos no estarán disponibles.")
 
 try:
     import nltk
@@ -25,14 +25,14 @@ try:
     from nltk.corpus import stopwords
     from nltk.stem import PorterStemmer
 except ImportError:
-    print("⚠️ nltk no está instalado. Instala con: pip install nltk && python -m nltk.downloader punkt stopwords")
+    print("[WARNING] nltk no está instalado. Instala con: pip install nltk && python -m nltk.downloader punkt stopwords")
 
 try:
     from sentence_transformers import SentenceTransformer
     SENTENCE_BERT_AVAILABLE = True
 except ImportError:
     SENTENCE_BERT_AVAILABLE = False
-    print("⚠️ sentence-transformers no está instalado. Algoritmos de embeddings no estarán disponibles.")
+    print("[WARNING] sentence-transformers no está instalado. Algoritmos de embeddings no estarán disponibles.")
 
 from app.utils.logger import get_logger
 from app.config import settings

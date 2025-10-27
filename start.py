@@ -18,11 +18,11 @@ def check_requirements():
         import requests
         import pandas
         import pydantic
-        print("✅ Todas las dependencias están instaladas")
+        print("[OK] Todas las dependencias están instaladas")
         return True
     except ImportError as e:
-        print(f"❌ Dependencia faltante: {e}")
-        print("💡 Ejecuta: pip install -r requirements.txt")
+        print(f"[ERROR] Dependencia faltante: {e}")
+        print("[INFO] Ejecuta: pip install -r requirements.txt")
         return False
 
 def create_env_file():
@@ -31,11 +31,11 @@ def create_env_file():
     env_example = Path("env.example")
     
     if not env_file.exists() and env_example.exists():
-        print("📝 Creando archivo .env desde env.example...")
+        print("[INFO] Creando archivo .env desde env.example...")
         env_file.write_text(env_example.read_text())
-        print("✅ Archivo .env creado")
+        print("[OK] Archivo .env creado")
     elif not env_file.exists():
-        print("⚠️ No se encontró env.example, creando .env básico...")
+        print("[WARNING] No se encontró env.example, creando .env básico...")
         env_file.write_text("""# Configuración básica
 API_TITLE="Bibliometría App"
 API_DESCRIPTION="API para extracción de metadatos de artículos académicos"
@@ -45,7 +45,7 @@ API_PORT=8000
 LOG_LEVEL="INFO"
 DEBUG=false
 """)
-        print("✅ Archivo .env básico creado")
+        print("[OK] Archivo .env básico creado")
 
 def create_directories():
     """Crear directorios necesarios."""
@@ -53,29 +53,29 @@ def create_directories():
     
     for directory in directories:
         Path(directory).mkdir(exist_ok=True)
-        print(f"📁 Directorio {directory} creado/verificado")
+        print(f"[INFO] Directorio {directory} creado/verificado")
 
 def run_tests():
     """Ejecutar pruebas unitarias."""
-    print("🧪 Ejecutando pruebas unitarias...")
+    print("[TEST] Ejecutando pruebas unitarias...")
     try:
         result = subprocess.run([sys.executable, "-m", "pytest", "tests/", "-v"], 
                               capture_output=True, text=True)
         if result.returncode == 0:
-            print("✅ Todas las pruebas pasaron")
+            print("[OK] Todas las pruebas pasaron")
             return True
         else:
-            print("❌ Algunas pruebas fallaron:")
+            print("[ERROR] Algunas pruebas fallaron:")
             print(result.stdout)
             print(result.stderr)
             return False
     except Exception as e:
-        print(f"❌ Error ejecutando pruebas: {e}")
+        print(f"[ERROR] Error ejecutando pruebas: {e}")
         return False
 
 def start_server(host="0.0.0.0", port=8000, reload=False, workers=1):
     """Iniciar el servidor de desarrollo."""
-    print(f"🚀 Iniciando servidor en http://{host}:{port}")
+    print(f"[INFO] Iniciando servidor en http://{host}:{port}")
     
     cmd = [
         sys.executable, "-m", "uvicorn",
@@ -86,18 +86,18 @@ def start_server(host="0.0.0.0", port=8000, reload=False, workers=1):
     
     if reload:
         cmd.append("--reload")
-        print("🔄 Modo de recarga automática activado")
+        print("[INFO] Modo de recarga automática activado")
     
     if workers > 1:
         cmd.extend(["--workers", str(workers)])
-        print(f"👥 Ejecutando con {workers} workers")
+        print(f"[INFO] Ejecutando con {workers} workers")
     
     try:
         subprocess.run(cmd)
     except KeyboardInterrupt:
-        print("\n👋 Servidor detenido por el usuario")
+        print("\n[INFO] Servidor detenido por el usuario")
     except Exception as e:
-        print(f"❌ Error iniciando servidor: {e}")
+        print(f"[ERROR] Error iniciando servidor: {e}")
 
 def main():
     """Función principal."""
@@ -111,7 +111,7 @@ def main():
     
     args = parser.parse_args()
     
-    print("🔧 BIBLIOMETRÍA APP - CONFIGURACIÓN INICIAL")
+    print("BIBLIOMETRIA APP - CONFIGURACION INICIAL")
     print("=" * 50)
     
     # Verificar dependencias
@@ -125,7 +125,7 @@ def main():
     create_directories()
     
     if args.setup:
-        print("✅ Configuración completada")
+        print("[OK] Configuración completada")
         return
     
     # Ejecutar pruebas si se solicita
@@ -135,13 +135,13 @@ def main():
         return
     
     # Ejecutar pruebas antes de iniciar
-    print("🧪 Verificando pruebas antes del inicio...")
+    print("[TEST] Verificando pruebas antes del inicio...")
     if not run_tests():
-        print("❌ Pruebas fallaron, abortando.")
+        print("[ERROR] Pruebas fallaron, abortando.")
         sys.exit(1)
     
     # Iniciar servidor
-    print("\n🚀 INICIANDO SERVIDOR")
+    print("\nINICIANDO SERVIDOR")
     print("=" * 30)
     start_server(args.host, args.port, args.reload, args.workers)
 

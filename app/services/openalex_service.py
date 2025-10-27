@@ -229,7 +229,7 @@ class OpenAlexService:
             return article
             
         except Exception as e:
-            print(f"⚠️ Error procesando trabajo: {e}")
+            print(f"[WARNING] Error procesando trabajo: {e}")
             return None
     
     def _extract_abstract(self, work: Dict[str, Any]) -> str:
@@ -253,7 +253,7 @@ class OpenAlexService:
                 if reconstructed.strip():
                     return reconstructed.strip()
             except Exception as e:
-                print(f"⚠️ Error reconstruyendo abstract: {e}")
+                print(f"[WARNING] Error reconstruyendo abstract: {e}")
         
         # Buscar en otros campos posibles
         for field in ['summary', 'description', 'content']:

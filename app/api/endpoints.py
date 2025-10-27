@@ -461,22 +461,49 @@ async def analyze_text_similarity(request: TextSimilarityRequest, http_request: 
                 return [make_serializable(item) for item in obj]
             return obj
         
+        # Preparar datos serializables con manejo especial para detalles complejos
         response_data = {
             "articles": [{"index": int(a['index']), "title": str(a['title'])} for a in articles_data],
-            "results": [
-                {
-                    "algorithm": str(r.algorithm_name),
-                    "score": float(r.similarity_score),
-                    "explanation": str(r.explanation),
-                    "details": make_serializable(r.details),
-                    "time": float(r.processing_time)
-                }
-                for r in results
-            ],
-            "summary": {
-                "algorithms_used": int(len(set(r.algorithm_name for r in results))),
-                "avg_similarity": float(sum(r.similarity_score for r in results) / len(results)) if results else 0.0
-            }
+            "results": []
+        }
+        
+        for r in results:
+            # Simplificar detalles para evitar tipos numpy problemáticos
+            simple_details = {}
+            for key, value in r.details.items():
+                try:
+                    # Casos especiales
+                    if key == 'matrix' and value is not None:
+                        # Matrices muy grandes: solo info de tamaño
+                        if isinstance(value, (list, tuple)) and len(value) > 10:
+                            simple_details[key] = f"Matrix {len(value)}x{len(value[0]) if isinstance(value[0], (list, tuple)) else 1} (too large to serialize)"
+                        else:
+                            simple_details[key] = make_serializable(value)
+                    elif key in ['backtrace', 'top_contributing_terms']:
+                        # Limitar listas largas a primeros elementos
+                        if isinstance(value, list):
+                            simple_details[key] = value[:10] if len(value) > 10 else make_serializable(value)
+                        else:
+                            simple_details[key] = make_serializable(value)
+                    elif isinstance(value, (str, int, float, bool)):
+                        simple_details[key] = value
+                    else:
+                        simple_details[key] = make_serializable(value)
+                except Exception as e:
+                    simple_details[key] = f"Error serializing {type(value).__name__}: {str(e)}"
+            
+            response_data["results"].append({
+                "algorithm": str(r.algorithm_name),
+                "score": float(r.similarity_score),
+                "explanation": str(r.explanation)[:1000],  # Limitar longitud
+                "details": simple_details,
+                "time": float(r.processing_time)
+            })
+        
+        # Summary
+        response_data["summary"] = {
+            "algorithms_used": int(len(set(r.algorithm_name for r in results))),
+            "avg_similarity": float(sum(r.similarity_score for r in results) / len(results)) if results else 0.0
         }
         
         logger.info("Text similarity completed", results=len(results))

@@ -22,7 +22,7 @@ def check_server():
 
 def test_automation():
     """Probar el endpoint de automatización."""
-    print("\n🤖 PRUEBA: Sistema de Automatización")
+    print("\nPRUEBA: Sistema de Automatización")
     print("-" * 50)
     
     try:
@@ -42,36 +42,36 @@ def test_automation():
             result = response.json()
             stats = result.get('data_statistics', {})
             
-            print(f"   ✅ Tiempo: {elapsed:.1f}s")
-            print(f"   ✅ Total artículos: {stats.get('total_articles_downloaded')}")
-            print(f"   ✅ Únicos: {stats.get('unique_articles')}")
-            print(f"   ✅ Duplicados eliminados: {stats.get('duplicates_removed')}")
-            print(f"   ✅ Tasa duplicación: {stats.get('duplication_rate')}")
+            print(f"   [OK] Tiempo: {elapsed:.1f}s")
+            print(f"   [OK] Total artículos: {stats.get('total_articles_downloaded')}")
+            print(f"   [OK] Únicos: {stats.get('unique_articles')}")
+            print(f"   [OK] Duplicados eliminados: {stats.get('duplicates_removed')}")
+            print(f"   [OK] Tasa duplicación: {stats.get('duplication_rate')}")
             
             files = result.get('generated_files', {})
             unified = files.get('unified_file', '')
             
             if unified and os.path.exists(unified):
-                print(f"   ✅ Archivo: {os.path.basename(unified)}")
+                print(f"   [OK] Archivo: {os.path.basename(unified)}")
                 return True, unified
             else:
-                print(f"   ❌ Archivo no encontrado")
+                print(f"   [ERROR] Archivo no encontrado")
                 return True, None
         else:
-            print(f"   ❌ Error {response.status_code}")
+            print(f"   [ERROR] Error {response.status_code}")
             return False, None
             
     except Exception as e:
-        print(f"   ❌ Error: {e}")
+        print(f"   [ERROR] Error: {e}")
         return False, None
 
 def verify_geographic_data(csv_file):
     """Verificar que el CSV incluye datos geográficos."""
-    print("\n🌍 PRUEBA: Datos Geográficos Integrados")
+    print("\nPRUEBA: Datos Geográficos Integrados")
     print("-" * 50)
     
     if not csv_file or not os.path.exists(csv_file):
-        print("   ❌ No hay CSV")
+        print("   [ERROR] No hay CSV")
         return False
     
     try:
@@ -89,32 +89,32 @@ def verify_geographic_data(csv_file):
         for col in geo_columns:
             if col in df.columns:
                 count = df[col].notna().sum()
-                print(f"   ✅ {col}: {count} registros")
+                print(f"   [OK] {col}: {count} registros")
             else:
-                print(f"   ❌ {col}: FALTA")
+                print(f"   [ERROR] {col}: FALTA")
                 all_present = False
         
         if all_present:
-            print(f"   ✅ Campos geográficos integrados correctamente")
+            print(f"   [OK] Campos geográficos integrados correctamente")
             
             # Mostrar ejemplos
             print(f"\n   Ejemplos:")
             for i, row in df.head(3).iterrows():
                 inst = row.get('institution_countries', '')
                 if pd.notna(inst) and inst:
-                    print(f"      • {str(row['title'])[:50]}... → {inst}")
+                    print(f"      - {str(row['title'])[:50]}... → {inst}")
             
             return True
         else:
             return False
             
     except Exception as e:
-        print(f"   ❌ Error: {e}")
+        print(f"   [ERROR] Error: {e}")
         return False
 
 def show_structure():
     """Mostrar estructura de archivos."""
-    print("\n📁 ARCHIVOS GENERADOS:")
+    print("\nARCHIVOS GENERADOS:")
     print("-" * 50)
     
     if not os.path.exists("results"):
@@ -127,30 +127,30 @@ def show_structure():
         
         folder = os.path.basename(root)
         if folder == "results":
-            print(f"📂 results/")
+            print(f"results/")
         else:
-            print(f"{indent}📁 {folder}/")
+            print(f"{indent}{folder}/")
             
             for file in files:
                 try:
                     size = os.path.getsize(os.path.join(root, file)) / 1024
-                    print(f"{indent}📄 {file} ({size:.1f} KB)")
+                    print(f"{indent}{file} ({size:.1f} KB)")
                 except:
                     pass
 
 def main():
     """Función principal."""
     print("=" * 70)
-    print("🚀 SISTEMA DE PRUEBAS BIBLIOMÉTRICO")
+    print("SISTEMA DE PRUEBAS BIBLIOMETRICO")
     print("=" * 70)
     
     # Verificar servidor
-    print("\n🔍 Verificando servidor...")
+    print("\nVerificando servidor...")
     if not check_server():
-        print("   ❌ Servidor no está corriendo")
+        print("   [ERROR] Servidor no está corriendo")
         print("   Ejecuta: python start.py")
         return
-    print("   ✅ Servidor corriendo")
+    print("   [OK] Servidor corriendo")
     
     # Ejecutar pruebas
     automation_ok, csv_file = test_automation()
@@ -164,20 +164,20 @@ def main():
     
     # Resumen
     print("\n" + "=" * 70)
-    print("📊 RESUMEN:")
-    print(f"   Servidor: ✅")
-    print(f"   Automatización: {'✅' if automation_ok else '❌'}")
-    print(f"   Datos geográficos: {'✅' if geographic_ok else '❌'}")
+    print("RESUMEN:")
+    print(f"   Servidor: [OK]")
+    print(f"   Automatización: {'[OK]' if automation_ok else '[ERROR]'}")
+    print(f"   Datos geográficos: {'[OK]' if geographic_ok else '[ERROR]'}")
     
     if automation_ok and geographic_ok:
-        print("\n🎉 ¡TODAS LAS PRUEBAS EXITOSAS!")
-        print("\n✅ Sistema funcionando:")
-        print("   • Descarga multi-fuente automática")
-        print("   • Eliminación de duplicados")
-        print("   • Datos geográficos integrados en CSV")
-        print("   • Archivos organizados por tipo")
+        print("\n[OK] TODAS LAS PRUEBAS EXITOSAS!")
+        print("\nSistema funcionando:")
+        print("   - Descarga multi-fuente automática")
+        print("   - Eliminación de duplicados")
+        print("   - Datos geográficos integrados en CSV")
+        print("   - Archivos organizados por tipo")
     else:
-        print("\n❌ Algunas pruebas fallaron")
+        print("\n[ERROR] Algunas pruebas fallaron")
 
 if __name__ == "__main__":
     main()
