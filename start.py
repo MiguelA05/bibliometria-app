@@ -137,7 +137,8 @@ def main():
     # Ejecutar pruebas antes de iniciar
     print("🧪 Verificando pruebas antes del inicio...")
     if not run_tests():
-        print("⚠️ Algunas pruebas fallaron, pero continuando...")
+        print("❌ Pruebas fallaron, abortando.")
+        sys.exit(1)
     
     # Iniciar servidor
     print("\n🚀 INICIANDO SERVIDOR")
