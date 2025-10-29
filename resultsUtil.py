@@ -21,7 +21,7 @@ def get_unified_path() -> Path:
 	En el futuro se puede cambiar para buscar dinámicamente el último fichero.
 	"""
 	# Ruta quemada según el fichero que hay en el repo actualmente
-	return Path("results") / "unified" / "unified_generative_ai_20251027_091542_unified.csv"
+	return Path("results") / "unified" / "unified_generative_ai_20251029_134723_unified.csv"
 
 
 def read_unified() -> List[List[str]]:
