@@ -12,6 +12,8 @@ from datetime import datetime
 from dataclasses import dataclass
 from app.models.article import ArticleMetadata
 from app.services.openalex_service import OpenAlexService
+from app.services.pubmed_service import PubMedService
+from app.services.arxiv_service import ArXivService
 from app.utils.logger import get_logger
 from app.config import settings
 
@@ -47,7 +49,8 @@ class DataUnificationService:
     def create_data_sources(self, base_query: str = "generative artificial intelligence", 
                           max_articles_per_source: int = 50) -> List[DataSource]:
         """
-        Crear configuraciones para múltiples fuentes de datos.
+        Crear configuraciones para múltiples fuentes de datos REALES.
+        Por ahora solo OpenAlex está activo hasta completar las pruebas de PubMed y ArXiv.
         
         Args:
             base_query: Consulta base para todas las fuentes
@@ -58,29 +61,30 @@ class DataUnificationService:
         """
         sources = [
             DataSource(
-                name="OpenAlex_General",
+                name="OpenAlex",
                 service=OpenAlexService(),
                 query=base_query,
-                max_articles=max_articles_per_source,
-                filters=None  # Sin filtros para obtener más resultados
+                max_articles=max_articles_per_source // 3,  # Dividir entre 3 fuentes
+                filters=None
             ),
             DataSource(
-                name="OpenAlex_Articles",
-                service=OpenAlexService(),
+                name="PubMed",
+                service=PubMedService(),
                 query=base_query,
-                max_articles=max_articles_per_source // 2,
-                filters={"type": "journal-article"}
+                max_articles=max_articles_per_source // 3,
+                filters=None
             ),
             DataSource(
-                name="OpenAlex_Conferences",
-                service=OpenAlexService(),
+                name="ArXiv",
+                service=ArXivService(),
                 query=base_query,
-                max_articles=max_articles_per_source // 2,
-                filters={"type": "conference-paper"}
+                max_articles=max_articles_per_source // 3,
+                filters=None
             )
         ]
         
         self.logger.info(f"Created {len(sources)} data sources for query: {base_query}")
+        self.logger.info(f"Sources: OpenAlex, PubMed, ArXiv")
         return sources
     
     def download_from_sources(self, sources: List[DataSource]) -> List[ArticleMetadata]:
@@ -347,20 +351,11 @@ class DataUnificationService:
                 'abstract': article.abstract,
                 'publication_date': article.publication_date,
                 'article_url': article.article_url,
-                'openalex_id': article.openalex_id,
                 'doi': article.doi,
-                'doi_url': article.doi_url,
                 'publication_year': article.publication_year,
                 'type': article.type,
                 'language': article.language,
-                'is_oa': article.is_oa,
-                'oa_url': article.oa_url,
-                'oa_status': article.oa_status,
-                'source_title': article.source_title,
-                'source_type': article.source_type,
-                'publisher': article.publisher,
-                'cited_by_count': article.cited_by_count,
-                'topics': '; '.join(article.topics) if article.topics else '',
+                'keywords': '; '.join(article.topics) if article.topics else '',
                 'license': article.license,
                 'data_source': getattr(article, 'source', 'Unknown'),
                 

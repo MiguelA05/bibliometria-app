@@ -5,6 +5,7 @@ Proporciona información geográfica compatible con herramientas de visualizaci�
 
 import requests
 import json
+import re
 from typing import List, Dict, Any, Optional, Tuple
 from app.utils.logger import get_logger
 from app.config import settings
@@ -544,6 +545,91 @@ class GeographicDataService:
         except Exception as e:
             self.logger.error(f"Error exporting geographic data: {e}")
             raise
+    
+    def extract_geographic_data_from_affiliation_text(self, affiliations: List[str]) -> Dict[str, List[str]]:
+        """
+        Extraer datos geográficos de texto libre de afiliaciones (PubMed, etc.).
+        
+        Args:
+            affiliations: Lista de afiliaciones en texto libre
+            
+        Returns:
+            Diccionario con países extraídos
+        """
+        if not affiliations:
+            return {
+                'author_countries': [],
+                'author_cities': [],
+                'institution_countries': [],
+                'institution_cities': [],
+                'geographic_coordinates': []
+            }
+        
+        countries = set()
+        cities = set()
+        
+        # Lista de países comunes
+        known_countries = {
+            'United States', 'USA', 'US', 'United Kingdom', 'UK',
+            'Canada', 'Australia', 'Germany', 'France', 'Italy', 'Spain',
+            'Netherlands', 'Sweden', 'Switzerland', 'Norway', 'Denmark',
+            'Finland', 'Belgium', 'Austria', 'Poland', 'Czech Republic',
+            'Portugal', 'Ireland', 'Greece', 'Israel', 'Japan', 'China',
+            'India', 'South Korea', 'Singapore', 'Taiwan', 'Hong Kong',
+            'Thailand', 'Vietnam', 'Malaysia', 'Indonesia', 'Philippines',
+            'Pakistan', 'Bangladesh', 'Saudi Arabia', 'United Arab Emirates',
+            'Turkey', 'Brazil', 'Mexico', 'Argentina', 'Chile', 'Colombia',
+            'South Africa', 'Egypt', 'Nigeria', 'Kenya', 'Ghana', 'Russia',
+            'New Zealand', 'Taiwan', 'Belarus', 'Ukraine', 'Romania',
+            'Bulgaria', 'Hungary', 'Serbia', 'Croatia', 'Slovenia'
+        }
+        
+        for affiliation in affiliations:
+            if not affiliation:
+                continue
+            
+            # Normalizar texto
+            text = affiliation.strip()
+            
+            # Buscar países al final de afiliaciones
+            # Patrón: ...University, City, Country o ...University, Country
+            country_end_pattern = r',\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\.?\s*$'
+            matches = re.findall(country_end_pattern, text)
+            
+            for match in matches:
+                potential_country = match.strip().rstrip('.')
+                
+                # Verificar si es un país conocido
+                for country in known_countries:
+                    if potential_country.lower() == country.lower() or \
+                       potential_country.lower() in country.lower() or \
+                       country.lower() in potential_country.lower():
+                        countries.add(country)
+                        break
+            
+            # Buscar países en cualquier parte del texto
+            text_upper = text.upper()
+            for country in known_countries:
+                country_escaped = re.escape(country)
+                if re.search(r'\b' + country_escaped + r'\b', text, re.IGNORECASE):
+                    countries.add(country)
+            
+            # Extraer ciudades (patrón simple: City, STATE/Country)
+            # Ej: "Harvard Medical School, Boston, MA, USA"
+            city_pattern = r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*),?\s+(?:[A-Z]{2}|[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)$'
+            city_matches = re.findall(city_pattern, text)
+            for city_match in city_matches:
+                city = city_match.strip()
+                if city and len(city) < 50:  # Filtrar ciudades muy largas (probablemente países)
+                    cities.add(city)
+        
+        return {
+            'author_countries': sorted(list(countries)),
+            'author_cities': sorted(list(cities)),
+            'institution_countries': sorted(list(countries)),  # En PubMed, mismo origen
+            'institution_cities': sorted(list(cities)),
+            'geographic_coordinates': []  # No tenemos coordenadas de texto libre
+        }
 
 
 

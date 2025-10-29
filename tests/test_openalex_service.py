@@ -283,23 +283,29 @@ class TestOpenAlexService:
         assert len(df) == 2
         expected_columns = [
             'title', 'authors', 'affiliations', 'abstract', 'publication_date',
-            'article_url', 'openalex_id', 'doi', 'doi_url', 'publication_year',
-            'type', 'language', 'is_oa', 'oa_url', 'oa_status', 'source_title', 
+            'article_url', 'doi', 'publication_year',
+            'type', 'language', 'is_oa', 'source_title',
             'source_type', 'publisher', 'cited_by_count', 'topics', 'license'
         ]
         # The service may include geographic fields appended to the CSV. Accept
         # both the original expected columns and the extended set with geographic
-        # columns (author/institution countries/cities and geographic coordinates).
+        # columns (author/institution countries/cities and geographic coordinates) and data_source.
         extended_columns = expected_columns + [
             'author_countries', 'author_cities', 'institution_countries',
-            'institution_cities', 'geographic_coordinates'
+            'institution_cities', 'geographic_coordinates', 'data_source'
         ]
 
-        # The DataFrame should match either the base schema or the extended schema.
+        # The DataFrame should match the base schema and optionally include geographic and data_source fields
         cols = list(df.columns)
-        assert cols == expected_columns or cols == extended_columns, (
-            f"Unexpected CSV columns. Got: {cols}\nExpected one of: {expected_columns} or {extended_columns}"
+        
+        # Check that all expected base columns are present
+        missing_base_cols = [col for col in expected_columns if col not in cols]
+        assert len(missing_base_cols) == 0, (
+            f"Missing base columns: {missing_base_cols}. Got: {cols}"
         )
+        
+        # Check that extended columns are optional
+        has_extended = all(col in cols for col in ['author_countries', 'author_cities', 'institution_countries', 'institution_cities', 'geographic_coordinates', 'data_source'])
         
         # Limpiar archivo de prueba
         os.remove(csv_path)

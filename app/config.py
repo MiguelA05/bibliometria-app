@@ -25,6 +25,14 @@ class Settings(BaseSettings):
     openalex_timeout: int = Field(default=30, env="OPENALEX_TIMEOUT")
     openalex_max_per_page: int = Field(default=200, env="OPENALEX_MAX_PER_PAGE")
     
+    # Configuración de PubMed
+    pubmed_base_url: str = Field(default="https://eutils.ncbi.nlm.nih.gov/entrez/eutils", env="PUBMED_BASE_URL")
+    pubmed_timeout: int = Field(default=30, env="PUBMED_TIMEOUT")
+    
+    # Configuración de ArXiv
+    arxiv_base_url: str = Field(default="https://export.arxiv.org/api/query", env="ARXIV_BASE_URL")
+    arxiv_timeout: int = Field(default=30, env="ARXIV_TIMEOUT")
+    
     # Configuración de límites
     max_articles_default: int = Field(default=10, env="MAX_ARTICLES_DEFAULT")
     max_articles_limit: int = Field(default=1000, env="MAX_ARTICLES_LIMIT")

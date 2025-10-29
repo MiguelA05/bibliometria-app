@@ -451,25 +451,16 @@ class OpenAlexService:
             for article in articles:
                 article_dict = {
                     'title': article.title,
-                    'authors': '; '.join(article.authors),
-                    'affiliations': '; '.join(article.affiliations),
-                    'abstract': article.abstract,
+                    'authors': '; '.join(article.authors) if article.authors else '',
+                    'affiliations': '; '.join(article.affiliations) if article.affiliations else '',
+                    'abstract': article.abstract or '',
                     'publication_date': article.publication_date,
                     'article_url': article.article_url,
-                    'openalex_id': article.openalex_id,
                     'doi': article.doi,
-                    'doi_url': article.doi_url,
                     'publication_year': article.publication_year,
                     'type': article.type,
-                    'language': article.language,
-                    'is_oa': article.is_oa,
-                    'oa_url': article.oa_url,
-                    'oa_status': article.oa_status,
-                    'source_title': article.source_title,
-                    'source_type': article.source_type,
-                    'publisher': article.publisher,
-                    'cited_by_count': article.cited_by_count,
-                    'topics': '; '.join(article.topics) if article.topics else '',
+                    'language': article.language or 'en',
+                    'keywords': '; '.join(article.topics) if article.topics else '',
                     'license': article.license,
                     
                     # Datos geográficos
@@ -477,7 +468,8 @@ class OpenAlexService:
                     'author_cities': '; '.join(article.author_cities) if article.author_cities else '',
                     'institution_countries': '; '.join(article.institution_countries) if article.institution_countries else '',
                     'institution_cities': '; '.join(article.institution_cities) if article.institution_cities else '',
-                    'geographic_coordinates': json.dumps(article.geographic_coordinates) if article.geographic_coordinates else ''
+                    'geographic_coordinates': json.dumps(article.geographic_coordinates) if article.geographic_coordinates else '',
+                    'data_source': getattr(article, 'source', 'OpenAlex')
                 }
                 articles_data.append(article_dict)
             

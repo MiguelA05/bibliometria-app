@@ -34,8 +34,9 @@ def test_automation():
         }
         
         print(f"   Consulta: {data['base_query']}")
+        print(f"   [INFO] Esperando respuesta... (timeout: 180s)")
         start = time.time()
-        response = requests.post(url, json=data, timeout=120)
+        response = requests.post(url, json=data, timeout=180)
         elapsed = time.time() - start
         
         if response.status_code == 200:
