@@ -273,21 +273,322 @@ def generate_wordclouds_for_fields(
 
     return results
 
+
+# Punto 3: Línea temporal de publicaciones por año y por revista
+def plot_publications_timeline(
+    *,
+    date_field: str = "publication_date",
+    source_field: str = "data_source",
+    limit: Optional[int] = None,
+    top_n_sources: int = 8,
+    output_dir: Path | str = Path("results") / "reports",
+    show_plot: bool = False,
+) -> Tuple[Path, pd.DataFrame]:
+    """Genera una línea temporal (publicaciones por año) desglosada por fuente.
+
+    Parámetros:
+    - date_field: nombre de la columna con la fecha de publicación.
+    - source_field: nombre de la columna con la fuente/revista (data_source por defecto).
+    - limit: número máximo de filas a procesar (None = todas).
+    - top_n_sources: cuántas fuentes mostrar individualmente (el resto se agrupa en 'Other').
+    - output_dir: directorio donde guardar los artefactos.
+    - show_plot: si True abre la figura (requiere entorno gráfico).
+
+    Devuelve (ruta_al_artifact, dataframe_con_los_conteos_por_año_y_fuente).
+    """
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    rows = read_unified()
+    if not rows or len(rows) < 2:
+        raise FileNotFoundError("El CSV unificado está vacío o no existe.")
+
+    header = rows[0]
+    lowered = [h.lower() for h in header]
+
+    # resolver índices
+    if date_field in header:
+        date_idx = header.index(date_field)
+    elif date_field.lower() in lowered:
+        date_idx = lowered.index(date_field.lower())
+    else:
+        raise ValueError(f"Columna de fecha '{date_field}' no encontrada. Columnas: {header}")
+
+    if source_field in header:
+        src_idx = header.index(source_field)
+    elif source_field.lower() in lowered:
+        src_idx = lowered.index(source_field.lower())
+    else:
+        raise ValueError(f"Columna de fuente '{source_field}' no encontrada. Columnas: {header}")
+
+    # Construir DataFrame mínimo
+    records = []
+    for i, row in enumerate(rows[1:]):
+        if limit is not None and i >= limit:
+            break
+        date_raw = row[date_idx] if date_idx < len(row) else ""
+        src_raw = row[src_idx] if src_idx < len(row) else ""
+        records.append({"publication_date": date_raw, "data_source": src_raw})
+
+    df = pd.DataFrame(records)
+    # Normalizar fechas y extraer año
+    df["year"] = pd.to_datetime(df["publication_date"], errors="coerce").dt.year
+    # Filtrar filas sin año
+    df = df.dropna(subset=["year"]).copy()
+    df["year"] = df["year"].astype(int)
+
+    # Normalizar fuente simple
+    df["data_source"] = df["data_source"].fillna("Unknown").astype(str)
+
+    # Seleccionar top N fuentes por volumen total
+    top_sources = (
+        df["data_source"].value_counts().nlargest(top_n_sources).index.tolist()
+    )
+    df["source_group"] = df["data_source"].where(df["data_source"].isin(top_sources), other="Other")
+
+    # Agrupar por año y fuente
+    grouped = df.groupby(["year", "source_group"]).size().reset_index(name="count")
+
+    # Pivot para series (años x fuentes)
+    pivot = grouped.pivot(index="year", columns="source_group", values="count").fillna(0).sort_index()
+
+    # Intentar plotly para interactividad
+    try:
+        import plotly.express as px
+
+        fig = px.line(pivot.reset_index(), x="year", y=pivot.columns.tolist(), markers=True)
+        fig.update_layout(title="Publicaciones por año y fuente", xaxis_title="Año", yaxis_title="Publicaciones")
+        html_path = output_dir / "publications_timeline.html"
+        fig.write_html(str(html_path))
+
+        # intentar PNG con kaleido
+        try:
+            png_path = output_dir / "publications_timeline.png"
+            fig.write_image(str(png_path), engine="kaleido")
+            main_artifact = png_path
+        except Exception:
+            main_artifact = html_path
+
+        if show_plot:
+            fig.show()
+
+        return main_artifact, pivot
+
+    except Exception:
+        # Fallback matplotlib: múltiples líneas
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+        for col in pivot.columns:
+            ax.plot(pivot.index, pivot[col], marker="o", label=str(col))
+        ax.set_xlabel("Año")
+        ax.set_ylabel("Publicaciones")
+        ax.set_title("Publicaciones por año y fuente")
+        ax.legend(loc="best")
+        plt.tight_layout()
+        png_path = output_dir / "publications_timeline.png"
+        fig.savefig(str(png_path), dpi=200)
+        if show_plot:
+            plt.show()
+        plt.close(fig)
+        return png_path, pivot
+
+
+def plot_publications_timeline_events(
+    *,
+    date_field: str = "publication_date",
+    label_field: str = "title",
+    source_field: str = "data_source",
+    limit: Optional[int] = None,
+    max_events: Optional[int] = 1000,
+    output_dir: Path | str = Path("results") / "reports",
+    show_plot: bool = False,
+) -> Tuple[Path, pd.DataFrame]:
+    """Genera una línea temporal estilo "event labels" similar a la imagen adjunta.
+
+    Cada publicación se marca en el eje X por su año y se coloca una etiqueta
+    tipo caja con el texto tomado de `label_field` (por defecto 'title'). Si
+    `label_field` no existe en el CSV, se usa `source_field`.
+
+    Devuelve la ruta al artefacto (HTML o PNG) y el DataFrame de eventos
+    con columnas ['year','label','source'] ordenado por year.
+    """
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    rows = read_unified()
+    if not rows or len(rows) < 2:
+        raise FileNotFoundError("El CSV unificado está vacío o no existe.")
+
+    header = rows[0]
+    lowered = [h.lower() for h in header]
+
+    # Resolver índices con tolerancia a mayúsculas
+    def _resolve(colname: str) -> int:
+        if colname in header:
+            return header.index(colname)
+        if colname.lower() in lowered:
+            return lowered.index(colname.lower())
+        return -1
+
+    date_idx = _resolve(date_field)
+    src_idx = _resolve(source_field)
+    lbl_idx = _resolve(label_field)
+    if date_idx == -1:
+        raise ValueError(f"Columna de fecha '{date_field}' no encontrada. Columnas: {header}")
+    if src_idx == -1:
+        raise ValueError(f"Columna de fuente '{source_field}' no encontrada. Columnas: {header}")
+
+    records = []
+    for i, row in enumerate(rows[1:]):
+        if limit is not None and i >= limit:
+            break
+        date_raw = row[date_idx] if date_idx < len(row) else ""
+        try:
+            year = pd.to_datetime(date_raw, errors="coerce").year
+        except Exception:
+            year = None
+        if pd.isna(year):
+            continue
+        src_raw = row[src_idx] if src_idx < len(row) else ""
+        if lbl_idx != -1 and lbl_idx < len(row):
+            lbl_raw = row[lbl_idx]
+        else:
+            lbl_raw = src_raw
+        records.append({"year": int(year), "label": str(lbl_raw).strip(), "source": str(src_raw).strip()})
+        if max_events is not None and len(records) >= max_events:
+            break
+
+    if not records:
+        raise ValueError("No se encontraron publicaciones con fecha válida para generar la línea temporal.")
+
+    df = pd.DataFrame(records).sort_values("year")
+
+    # Agrupar por año para preparar posiciones verticales (stack)
+    year_groups = df.groupby("year")
+    placements = []
+    for year, group in year_groups:
+        texts = group["label"].tolist()
+        sources = group["source"].tolist()
+        for i, (t, s) in enumerate(zip(texts, sources)):
+            placements.append({"year": year, "label": t, "source": s, "y_pos": i})
+
+    placed_df = pd.DataFrame(placements)
+
+    # Normalizar posiciones verticales para que no crezcan indefinidamente
+    max_stack = placed_df["y_pos"].max() if not placed_df.empty else 0
+    # Scale to a small visual range
+    if max_stack > 0:
+        placed_df["y_plot"] = placed_df["y_pos"] / (max_stack + 1) * 0.8 + 0.1
+    else:
+        placed_df["y_plot"] = 0.1
+
+    # Crear figura con Plotly si está disponible
+    try:
+        import plotly.graph_objects as go
+
+        years = placed_df["year"].astype(int)
+        yvals = placed_df["y_plot"]
+
+        fig = go.Figure()
+        # Línea base
+        fig.add_trace(go.Scatter(x=[years.min(), years.max()], y=[0, 0], mode="lines", line=dict(color="#888"), hoverinfo='skip'))
+
+        # Marcadores invisibles para hover
+        fig.add_trace(go.Scatter(x=years, y=yvals, mode="markers", marker=dict(size=6, color="#ff7f0e"), hoverinfo="text", text=placed_df["label"]))
+
+        # Anotaciones con cajas
+        annotations = []
+        for r in placed_df.to_dict(orient="records"):
+            annotations.append(
+                dict(
+                    x=r["year"],
+                    y=r["y_plot"],
+                    xref="x",
+                    yref="y",
+                    text=str(r["label"]),
+                    showarrow=False,
+                    bgcolor="#d62728",
+                    bordercolor="#800000",
+                    font=dict(color="white", size=12),
+                    align="center",
+                    opacity=0.9,
+                    ax=0,
+                    ay=-10,
+                )
+            )
+
+        fig.update_layout(annotations=annotations)
+        fig.update_yaxes(visible=False)
+        fig.update_xaxes(title_text="Año", dtick=1)
+        fig.update_layout(title_text="Línea temporal de publicaciones (eventos)", height=400 + int(max_stack) * 6)
+
+        html_path = output_dir / "publications_timeline_events.html"
+        fig.write_html(str(html_path))
+
+        try:
+            png_path = output_dir / "publications_timeline_events.png"
+            fig.write_image(str(png_path), engine="kaleido")
+            main_artifact = png_path
+        except Exception:
+            main_artifact = html_path
+
+        if show_plot:
+            fig.show()
+
+        return main_artifact, placed_df
+
+    except Exception:
+        # Fallback matplotlib: dibujar cajas de texto sobre una línea
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots(figsize=(12, max(4, 0.4 * (max_stack + 1))))
+        ax.hlines(0, placed_df["year"].min() - 1, placed_df["year"].max() + 1, colors="#888", linewidth=1)
+        for _, r in placed_df.iterrows():
+            x = r["year"]
+            y = r["y_plot"]
+            bbox = dict(boxstyle="round,pad=0.3", facecolor="#d62728", edgecolor="#800000", alpha=0.9)
+            ax.text(x, y, str(r["label"]), ha="center", va="center", fontsize=9, color="white", bbox=bbox)
+
+        ax.set_ylim(-0.1, 1.05)
+        ax.set_yticks([])
+        ax.set_xlabel("Año")
+        ax.set_title("Línea temporal de publicaciones (eventos)")
+        plt.tight_layout()
+        png_path = output_dir / "publications_timeline_events.png"
+        fig.savefig(str(png_path), dpi=200)
+        if show_plot:
+            plt.show()
+        plt.close(fig)
+        return png_path, placed_df
+
 #Punto 3 Linea temporal de publicaciones por año y por revista
 
-if __name__ == "__main__":
-    # Pequeño demo cuando se ejecuta directamente
-    limit = 500
-    artifact, counts = plot_institution_countries_heatmap(limit=limit, show_plot=False)
-    print(f"Visualización generada: {artifact}")
-    print(counts.head(20).to_string(index=False))
 
-    # Generar nubes de palabras para 'abstract' y 'keywords' y una combinada
+if __name__ == "__main__":
+    # Ejecución de ejemplo: generar artefactos rápidos (limit reducido para pruebas)
     try:
-        wc_results = generate_wordclouds_for_fields(top_n=15, show_plot=False, limit=limit)
-        for key, info in wc_results.items():
-            path = info.get("path") if isinstance(info, dict) else None
-            if path:
-                print(f"Nube generada ({key}): {path}")
-    except Exception as exc:
-        print(f"No se pudieron generar nubes de palabras: {exc}")
+        print("Generando mapa de países (limit=200)...")
+        artifact, df_countries = plot_institution_countries_heatmap(limit=200, show_plot=False)
+        print("Mapa guardado en:", artifact)
+    except Exception as e:
+        print("Error generando mapa de países:", e)
+
+    try:
+        print("Generando nubes de palabras (top_n=15, limit=200)...")
+        wc_results = generate_wordclouds_for_fields(top_n=15, show_plot=False, limit=200)
+        for k, v in wc_results.items():
+            print(f"Nube '{k}' -> {v.get('path')}")
+    except Exception as e:
+        print("Error generando nubes de palabras:", e)
+
+    try:
+        print("Generando línea temporal de publicaciones (events, limit=1000)...")
+        timeline_artifact, pivot = plot_publications_timeline_events(limit=1000, max_events=800, show_plot=False)
+        print("Línea temporal (events) guardada en:", timeline_artifact)
+        print("Resumen (primeras filas):\n", pivot.head())
+    except Exception as e:
+        print("Error generando línea temporal:", e)
+    # Demo reducido completado.
