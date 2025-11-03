@@ -27,7 +27,6 @@ except ImportError as exc:  # pragma: no cover - validamos en tiempo de ejecuci�
 
 try:
 	from sklearn.feature_extraction.text import TfidfVectorizer
-	from sklearn.metrics import silhouette_score
 except ImportError as exc:  # pragma: no cover - validamos en tiempo de ejecución
 	raise SystemExit(
 		"scikit-learn es requerida para vectorizar textos. Ejecuta 'pip install scikit-learn'."
@@ -279,20 +278,11 @@ def evaluate_cluster_quality(
 
 	unique_clusters = set(cluster_assignments)
 	cluster_count = len(unique_clusters)
-
 	cophenetic_corr, _ = hierarchy.cophenet(linkage_matrix, distance_vector)
-
-	silhouette_val = None
-	if 1 < cluster_count < len(cluster_assignments):
-		try:
-			silhouette_val = float(silhouette_score(dense_matrix, cluster_assignments, metric=metric))
-		except ValueError:
-			silhouette_val = None
 
 	return {
 		"cluster_count": cluster_count,
 		"cophenetic_correlation": float(cophenetic_corr),
-		"silhouette": silhouette_val,
 	}
 
 
@@ -372,6 +362,9 @@ def main(argv: Sequence[str] | None = None) -> None:
 		if method not in valid_methods:
 			raise SystemExit(f"Método de linkage no soportado: {method}")
 
+	# Informar de los métodos que se ejecutarán
+	print("Métodos a ejecutar:", ", ".join(methods))
+
 	documents = collect_documents(
 		text_field=args.field,
 		label_field=args.label_field,
@@ -380,11 +373,13 @@ def main(argv: Sequence[str] | None = None) -> None:
 		drop_duplicates=not args.keep_duplicates,
 	)
 
-	print(f"Documentos cargados: {len(documents)}")
-	print("Primeras etiquetas:")
-	for doc in documents[:5]:
-		preview = truncate_label(doc.text, max_chars=80)
-		print(f"  - {doc.label} :: {preview}")
+	# Limitar a los primeros 30 documentos para los dendrogramas (o menos si no hay tantos)
+	max_for_dendrogram = 30
+	if len(documents) > max_for_dendrogram:
+		print(f"Se han cargado {len(documents)} documentos; se usarán los primeros {max_for_dendrogram} para los dendrogramas.")
+		documents = documents[:max_for_dendrogram]
+	else:
+		print(f"Documentos cargados: {len(documents)}")
 
 	dense_matrix, _ = vectorize_documents(
 		documents,
@@ -395,12 +390,12 @@ def main(argv: Sequence[str] | None = None) -> None:
 	labels = [f"{doc.row_index}. {doc.label}" for doc in documents]
 
 	results_summary = []
-	best_silhouette = float("-inf")
 	best_cophenetic = float("-inf")
-	best_by_silhouette = None
 	best_by_cophenetic = None
 	for method in methods:
 		metric = "euclidean" if method == "ward" else "cosine"
+		print(f"\n=== Ejecutando método: {method} (métrica: {metric}) ===")
+		# Calcular linkage y vector de distancias
 		linkage_matrix, distance_vector = compute_linkage(dense_matrix, method=method, metric=metric)
 		output_path = plot_dendrogram(
 			linkage_matrix,
@@ -433,25 +428,12 @@ def main(argv: Sequence[str] | None = None) -> None:
 			"metrics": metrics,
 		})
 
-		if metrics["silhouette"] is not None and metrics["silhouette"] > best_silhouette:
-			best_silhouette = metrics["silhouette"]
-			best_by_silhouette = method
-
 		if metrics["cophenetic_correlation"] > best_cophenetic:
 			best_cophenetic = metrics["cophenetic_correlation"]
 			best_by_cophenetic = method
 
-		print(f"Resumen de clusters (umbral {args.distance_threshold}):")
-		for cluster_id, members in clusters[:5]:
-			joined = "; ".join(truncate_label(label, 60) for label in members)
-			print(f"  - Cluster {cluster_id} ({len(members)} docs): {joined}")
-
 		print("Métricas de coherencia:")
 		print(f"  - Correlación cophenética: {metrics['cophenetic_correlation']:.3f}")
-		if metrics["silhouette"] is not None:
-			print(f"  - Coeficiente silhouette: {metrics['silhouette']:.3f}")
-		else:
-			print("  - Coeficiente silhouette: no disponible (solo un cluster)")
 
 	if args.clusters_json:
 		serializable = [
@@ -472,11 +454,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 		args.clusters_json.write_text(json.dumps(serializable, indent=2, ensure_ascii=False), encoding="utf-8")
 		print(f"Resumen completo exportado a {args.clusters_json}")
 
-	if best_by_silhouette is not None:
-		print(
-			f"Método con mayor silhouette ({best_silhouette:.3f}): {best_by_silhouette}."
-		)
-	elif best_by_cophenetic is not None:
+	if best_by_cophenetic is not None:
 		print(
 			f"Método con correlación cophenética más alta ({best_cophenetic:.3f}): {best_by_cophenetic}."
 		)

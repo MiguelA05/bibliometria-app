@@ -16,12 +16,19 @@ from typing import List, Union, Callable, Any
 
 def get_unified_path() -> Path:
 	"""Devuelve la ruta (Path) al fichero `unified` (hardcoded).
-
-	Actualmente esta función devuelve una ruta fija relativa al root del repo.
-	En el futuro se puede cambiar para buscar dinámicamente el último fichero.
 	"""
-	# Ruta quemada según el fichero que hay en el repo actualmente
-	return Path("results") / "unified" / "unified_generative_ai_20251029_134723_unified.csv"
+	# Intentar localizar dinámicamente el último CSV en results/unified
+	unified_dir = Path("results") / "unified"
+	if not unified_dir.exists() or not unified_dir.is_dir():
+		raise FileNotFoundError(f"Directorio de unificados no encontrado: {unified_dir}")
+
+	csv_files = list(unified_dir.glob("*.csv"))
+	if not csv_files:
+		raise FileNotFoundError(f"No se encontraron archivos .csv en: {unified_dir}")
+
+	# Elegir el archivo con la fecha de modificación más reciente
+	latest = max(csv_files, key=lambda p: p.stat().st_mtime)
+	return latest
 
 
 def read_unified() -> List[List[str]]:

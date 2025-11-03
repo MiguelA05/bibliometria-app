@@ -115,7 +115,7 @@ def get_top_words_from_fields(field: Union[str, int] = 'abstract',
 
 if __name__ == "__main__":
     # Demo: imprime los títulos y las top-15 palabras en abstracts
-    print('\nTop palabras en abstracts:')
+    print('\nTop 15 palabras en abstracts:')
     top = get_top_words_from_fields(top_n=15)
     for word, cnt in top:
         print(f"{word}: {cnt}")
