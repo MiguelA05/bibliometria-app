@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
 
 import pandas as pd
+from datetime import datetime
 
 from resultsUtil import read_unified
 from contadorPalabras import get_top_words_from_fields
@@ -387,7 +388,7 @@ def plot_publications_by_year_source(
 # Punto 4: Exportar los resultados en pdf
 
 
-def export_images_to_pdf(image_paths: list[Path], output_pdf: Path, *, dpi: int = 300, margin_inch: float = 0.5) -> Path:
+def export_images_to_pdf(image_paths: list[Path], output_pdf: Path, *, dpi: int = 300, margin_inch: float = 0.3, report_title: str | None = None, index_titles: Optional[Iterable[str]] = None) -> Path:
     """Combina una lista de imágenes en un único PDF de alta calidad.
 
     Diferencias frente a la versión anterior:
@@ -413,23 +414,56 @@ def export_images_to_pdf(image_paths: list[Path], output_pdf: Path, *, dpi: int 
     # Página índice
     idx_page = Image.new("RGB", (page_w, page_h), "white")
     draw = ImageDraw.Draw(idx_page)
+    # Definir tamaños de fuente en función del DPI para que escalen bien
     try:
-        font_title = ImageFont.truetype("arial.ttf", 20)
-        font_body = ImageFont.truetype("arial.ttf", 12)
+        title_font_size = max(18, int(dpi * 0.5))
+        body_font_size = max(12, int(dpi * 0.3))
+        index_font_size = max(11, int(dpi * 0.3))
+        font_title = ImageFont.truetype("arial.ttf", title_font_size)
+        font_body = ImageFont.truetype("arial.ttf", body_font_size)
+        font_index = ImageFont.truetype("arial.ttf", index_font_size)
     except Exception:
         font_title = ImageFont.load_default()
         font_body = ImageFont.load_default()
+        font_index = ImageFont.load_default()
 
-    title = "Índice de imágenes"
+    # Helper para medir texto (compatible con varias versiones de Pillow)
+    def _text_size(draw_obj, text, font_obj):
+        try:
+            bbox = draw_obj.textbbox((0, 0), text, font=font_obj)
+            return (bbox[2] - bbox[0], bbox[3] - bbox[1])
+        except Exception:
+            try:
+                return font_obj.getsize(text)
+            except Exception:
+                return (len(text) * 8, int(dpi * 0.04))
+
+    title = "Reportes gráficos"
+    # Preparar etiquetas que se mostrarán en el índice. Si el llamador
+    # proporciona `index_titles`, se usan esas; si no, se generan
+    # etiquetas por defecto del estilo "titulo 1", "titulo 2", ...
+    if index_titles is None:
+        index_labels = ["Mapa de calor","Nube de palabras abstract","Nube de palabras palabras clave","Nube de palabras combinada","Línea temporal publicaciones"]
+    else:
+        index_labels = [str(x) for x in index_titles]
+        # Alinear longitud: completar con nombres de archivo si faltan,
+        # o recortar si hay más etiquetas que imágenes.
+        if len(index_labels) < len(image_paths):
+            index_labels += [p.name for p in image_paths[len(index_labels):]]
+        elif len(index_labels) > len(image_paths):
+            index_labels = index_labels[: len(image_paths)]
+    # Dibujar título del índice con efecto de negrita (doble pasada)
     draw.text((margin, margin // 2), title, fill="black", font=font_title)
-    y = margin + 30
-    for i, p in enumerate(image_paths, start=1):
-        line = f"{i}. {p.name}"
+    draw.text((margin + 1, (margin // 2) + 1), title, fill="black", font=font_title)
+    y = margin + int(title_font_size * 1.1)
+    for i, (p, label) in enumerate(zip(image_paths, index_labels), start=1):
+        line = f"{i}. {label}"
         wrapped = textwrap.wrap(line, width=80)
         for wline in wrapped:
-            draw.text((margin, y), wline, fill="black", font=font_body)
-            y += 16
-        y += 6
+            w_w, w_h = _text_size(draw, wline, font_index)
+            draw.text((margin, y), wline, fill="black", font=font_index)
+            y += w_h + int(dpi * 0.01)
+        y += int(dpi * 0.01)
         if y > page_h - margin:
             pages.append(idx_page)
             idx_page = Image.new("RGB", (page_w, page_h), "white")
@@ -453,21 +487,69 @@ def export_images_to_pdf(image_paths: list[Path], output_pdf: Path, *, dpi: int 
         imgs.append(im)
 
     # Escalar cada imagen para que ocupe el área máxima disponible (permitir upscaling)
-    for im in imgs:
+    # Iteramos las imágenes junto con las etiquetas/etiquetas del índice
+    for idx, (p, im, label) in enumerate(zip(image_paths, imgs, index_labels)):
         iw, ih = im.size
+
+        # Calcular altura reservada para título / subtítulo si se proporcionó
+        title_block_h = 0
+        caption_h = 0
+        gap = int(dpi * 0.9)
+        if report_title:
+            try:
+                title_block_h = font_title.getsize(report_title)[1] + gap
+            except Exception:
+                title_block_h = int(dpi * 0.08)
+        # Añadir una pequeña línea con la etiqueta del índice como subtítulo
+        try:
+            caption_h = font_body.getsize(str(label))[1] + gap
+        except Exception:
+            caption_h = int(dpi * 0.05)
+
+        top_reserved = margin + title_block_h + caption_h + gap
         max_w = page_w - 2 * margin
-        max_h = page_h - 2 * margin
+        max_h = page_h - top_reserved - margin
         # permitir escalar hacia arriba (no restringir a 1.0)
         scale = min(max_w / iw, max_h / ih)
-        if scale <= 0:
+        if not (scale and scale > 0):
             scale = 1.0
         new_w = max(1, int(iw * scale))
         new_h = max(1, int(ih * scale))
         im_resized = im.resize((new_w, new_h), resample=Image.LANCZOS)
 
         page = Image.new("RGB", (page_w, page_h), "white")
+
+        # Dibujar título centrado en la parte superior si se proporcionó
+        draw_page = ImageDraw.Draw(page)
+        def _text_size(draw_obj, text, font_obj):
+            try:
+                bbox = draw_obj.textbbox((0, 0), text, font=font_obj)
+                return (bbox[2] - bbox[0], bbox[3] - bbox[1])
+            except Exception:
+                try:
+                    return font_obj.getsize(text)
+                except Exception:
+                    return (len(text) * 8, int(dpi * 0.04))
+
+        if report_title:
+            w_title, h_title = _text_size(draw_page, report_title, font_title)
+            tx = (page_w - w_title) // 2
+            ty = margin
+            # Dibujar título en negrita (doble pasada)
+            draw_page.text((tx, ty), report_title, fill="black", font=font_title)
+            draw_page.text((tx + 1, ty + 1), report_title, fill="black", font=font_title)
+            # Línea subrayada discreta debajo del título
+            underline_y = ty + h_title + int(dpi * 0.11)
+            draw_page.line((margin, underline_y, page_w - margin, underline_y), fill=(60, 60, 60), width=1)
+
+        # Dibujar la etiqueta del índice como subtítulo (pequeño) centrado
+        w_cap, h_cap = _text_size(draw_page, str(label), font_body)
+        cx = (page_w - w_cap) // 2
+        cy = margin + (title_block_h if report_title else 0) + gap // 2
+        draw_page.text((cx, cy), str(label), fill="black", font=font_body)
+
         paste_x = (page_w - new_w) // 2
-        paste_y = (page_h - new_h) // 2
+        paste_y = top_reserved + max(0, (max_h - new_h) // 2)
         page.paste(im_resized, (paste_x, paste_y))
         pages.append(page)
 
@@ -538,8 +620,12 @@ if __name__ == "__main__":
             except Exception:
                 dest = ""
             out_pdf = Path(dest) if dest else default_pdf
+
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+            title_input = f"Reporte ({timestamp})"
+            report_title = title_input if title_input else None
             try:
-                pdf_path = export_images_to_pdf(expected_images, out_pdf)
+                pdf_path = export_images_to_pdf(expected_images, out_pdf, report_title=report_title)
                 print("PDF combinado generado en:", pdf_path)
             except Exception as e:
                 print("Error exportando imágenes a PDF:", e)
