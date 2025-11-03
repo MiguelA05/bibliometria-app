@@ -30,7 +30,7 @@ def test_automation():
         data = {
             "base_query": "generative artificial intelligence",
             "similarity_threshold": 0.8,
-            "max_articles_per_source": 30
+            "max_articles_per_source": 350
         }
         
         print(f"   Consulta: {data['base_query']}")

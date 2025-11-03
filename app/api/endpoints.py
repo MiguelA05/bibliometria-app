@@ -31,8 +31,8 @@ class UniversitySearchRequest(BaseModel):
 class AutomationRequest(BaseModel):
     """Modelo para solicitudes de automatización."""
     base_query: str = "generative artificial intelligence"
-    similarity_threshold: float = 0.8
-    max_articles_per_source: int = 50
+    similarity_threshold: float = 0.75
+    max_articles_per_source: int = 350  # Configurado para obtener ~300 artículos únicos (considerando duplicados)
 
 class TextSimilarityRequest(BaseModel):
     """Modelo para análisis de similitud textual."""

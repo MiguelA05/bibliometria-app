@@ -133,56 +133,104 @@ class DataUnificationService:
         Returns:
             Puntuación de similitud (0.0 a 1.0)
         """
+        # Caso especial: verificación rápida de DOI idéntico
+        if article1.doi and article2.doi:
+            doi1_norm = self._normalize_doi(article1.doi)
+            doi2_norm = self._normalize_doi(article2.doi)
+            if doi1_norm == doi2_norm and doi1_norm:
+                return 1.0  # Mismo DOI = mismo artículo
+        
         score = 0.0
         
-        # Comparar títulos (peso: 40%)
+        # Comparar títulos (peso: 45% - aumentado porque es más confiable)
+        title_similarity = 0.0
         if article1.title and article2.title:
             title_similarity = self._calculate_text_similarity(
                 article1.title.lower(), 
                 article2.title.lower()
             )
-            score += title_similarity * 0.4
+            score += title_similarity * 0.45
         
-        # Comparar DOI (peso: 30%)
-        if article1.doi and article2.doi:
-            if article1.doi == article2.doi:
-                score += 0.3
-            else:
-                # Comparar DOI normalizado
-                doi1_norm = self._normalize_doi(article1.doi)
-                doi2_norm = self._normalize_doi(article2.doi)
-                if doi1_norm == doi2_norm:
-                    score += 0.3
-        
-        # Comparar autores (peso: 20%)
+        # Comparar autores (peso: 30% - aumentado)
+        author_similarity = 0.0
         if article1.authors and article2.authors:
             author_similarity = self._calculate_author_similarity(
                 article1.authors, 
                 article2.authors
             )
-            score += author_similarity * 0.2
+            score += author_similarity * 0.30
+        
+        # Comparar DOI (peso: 15% - reducido, solo si ambos tienen DOI)
+        if article1.doi and article2.doi:
+            doi1_norm = self._normalize_doi(article1.doi)
+            doi2_norm = self._normalize_doi(article2.doi)
+            if doi1_norm == doi2_norm:
+                score += 0.15
+            # Si los DOIs son diferentes pero título y autores son muy similares,
+            # podría ser el mismo artículo con diferentes IDs (preprint vs published)
         
         # Comparar año de publicación (peso: 10%)
         if (article1.publication_year and article2.publication_year and 
             article1.publication_year == article2.publication_year):
-            score += 0.1
+            score += 0.10
+        
+        # CASO ESPECIAL: Si título y autores son casi idénticos (>95%), aumentar score
+        # Esto cubre casos donde el mismo artículo tiene diferentes DOIs (ej: preprint vs published)
+        if title_similarity >= 0.95 and author_similarity >= 0.9:
+            # Bonus por alta similitud en criterios principales
+            bonus = (title_similarity * 0.5 + author_similarity * 0.5) * 0.15
+            score = min(score + bonus, 1.0)
         
         return min(score, 1.0)
     
     def _calculate_text_similarity(self, text1: str, text2: str) -> float:
-        """Calcular similitud entre dos textos usando Jaccard."""
-        words1 = set(text1.split())
-        words2 = set(text2.split())
+        """Calcular similitud entre dos textos usando múltiples métodos."""
+        if not text1 or not text2:
+            return 0.0
+        if text1 == text2:
+            return 1.0
+        
+        # Normalizar textos (eliminar puntuación extra, espacios)
+        text1_norm = ' '.join(text1.lower().split())
+        text2_norm = ' '.join(text2.lower().split())
+        
+        if text1_norm == text2_norm:
+            return 1.0
+        
+        # Método 1: Jaccard sobre palabras (más robusto)
+        words1 = set(text1_norm.split())
+        words2 = set(text2_norm.split())
         
         if not words1 and not words2:
             return 1.0
         if not words1 or not words2:
             return 0.0
         
-        intersection = len(words1.intersection(words2))
-        union = len(words1.union(words2))
+        jaccard = len(words1.intersection(words2)) / len(words1.union(words2)) if words1.union(words2) else 0.0
         
-        return intersection / union if union > 0 else 0.0
+        # Método 2: Ratio de caracteres comunes (para detectar truncamientos)
+        # Calcular similitud usando longitud de subsecuencia común
+        min_len = min(len(text1_norm), len(text2_norm))
+        max_len = max(len(text1_norm), len(text2_norm))
+        
+        if max_len == 0:
+            return 1.0
+        
+        # Ratio de longitud (si uno es truncamiento del otro)
+        length_ratio = min_len / max_len if max_len > 0 else 0.0
+        
+        # Si uno es casi un prefijo del otro y la ratio es alta, probablemente es el mismo
+        if length_ratio > 0.85:
+            shorter = text1_norm if len(text1_norm) < len(text2_norm) else text2_norm
+            longer = text2_norm if len(text1_norm) < len(text2_norm) else text1_norm
+            if longer.startswith(shorter):
+                return 0.98  # Muy probable que sea truncamiento
+        
+        # Método 3: Ratio de palabras compartidas
+        shared_words_ratio = len(words1.intersection(words2)) / min(len(words1), len(words2)) if min(len(words1), len(words2)) > 0 else 0.0
+        
+        # Combinar métodos: priorizar el más alto
+        return max(jaccard, shared_words_ratio * 0.95, length_ratio * 0.7)
     
     def _normalize_doi(self, doi: str) -> str:
         """Normalizar DOI para comparación."""
@@ -228,7 +276,7 @@ class DataUnificationService:
         return normalized
     
     def detect_and_remove_duplicates(self, articles: List[ArticleMetadata], 
-                                   similarity_threshold: float = 0.8) -> Tuple[List[ArticleMetadata], List[DuplicateRecord]]:
+                                   similarity_threshold: float = 0.75) -> Tuple[List[ArticleMetadata], List[DuplicateRecord]]:
         """
         Detectar y eliminar duplicados de la lista de artículos.
         
@@ -487,8 +535,8 @@ class DataUnificationService:
         df.to_csv(file_path, index=False, encoding=settings.csv_encoding)
     
     def run_automated_process(self, base_query: str = "generative artificial intelligence",
-                            similarity_threshold: float = 0.8,
-                            max_articles_per_source: int = 50) -> Dict[str, Any]:
+                            similarity_threshold: float = 0.75,
+                            max_articles_per_source: int = 350) -> Dict[str, Any]:
         """
         Ejecutar proceso completo de automatización.
         

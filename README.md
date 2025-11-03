@@ -92,7 +92,35 @@ python start.py --host 127.0.0.1 --port 8080 --reload
 
 ## Uso
 
-### Endpoint disponible
+### 🎯 Menú Interactivo (Recomendado)
+
+Para cumplir con los requerimientos del proyecto, se ha creado un menú interactivo que permite:
+
+1. **Probar Web Scraping y Generar Resultados** (Requerimiento 1)
+   - Ejecutar proceso completo de automatización
+   - Descargar datos de múltiples bases de datos (OpenAlex, PubMed, ArXiv)
+   - Unificar información en un solo archivo
+   - Eliminar duplicados automáticamente
+   - Generar archivos: unificado, duplicados y reportes
+
+2. **Evaluar Algoritmos de Similitud Textual** (Requerimiento 2)
+   - Seleccionar archivo CSV unificado
+   - Elegir 2 o más artículos para comparar
+   - Ejecutar 6 algoritmos de similitud:
+     - 4 algoritmos clásicos: Levenshtein, Damerau-Levenshtein, Jaccard, TF-IDF
+     - 2 algoritmos de IA: Sentence-BERT, LLM-based
+   - Ver explicación detallada paso a paso de cada algoritmo
+
+**Ejecutar el menú:**
+```bash
+python menu.py
+```
+
+El menú guiará paso a paso a través de todas las funcionalidades con explicaciones detalladas.
+
+### API Endpoints
+
+#### Endpoint principal
 
 ```bash
 POST /api/v1/fetch-metadata
