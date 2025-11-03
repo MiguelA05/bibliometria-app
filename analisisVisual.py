@@ -154,7 +154,9 @@ def plot_institution_countries_heatmap(
 
         top_df = df.head(top_n).iloc[::-1]
         fig, ax = plt.subplots(figsize=(10, max(4, 0.2 * len(top_df))))
-        ax.barh(top_df["country"], top_df["count"], color="#3478b6")
+        # Wrap long country names so the horizontal bars don't stretch too much
+        wrapped_names = [textwrap.fill(str(name), width=25) for name in top_df["country"]]
+        ax.barh(wrapped_names, top_df["count"], color="#3478b6")
         ax.set_xlabel("Número de instituciones")
         ax.set_title("Top países por instituciones (fallback, no choropleth)")
         plt.tight_layout()
@@ -280,7 +282,7 @@ def generate_wordclouds_for_fields(
 def plot_publications_by_year_source(
     *,
     date_field: str = "publication_date",
-    source_field: str = "data_source",
+    source_field: str = "journal",
     limit: Optional[int] = None,
     top_n_sources: int = 8,
     output_dir: Path | str = Path("results") / "reports",
@@ -340,8 +342,13 @@ def plot_publications_by_year_source(
     # Intentar plotly
     try:
         import plotly.express as px
-
-        fig = px.line(pivot.reset_index(), x="year", y=pivot.columns.tolist(), markers=True)
+        # Wrap long source names so the legend / hover labels are multi-line and more compact
+        df_line = pivot.reset_index()
+        orig_cols = pivot.columns.tolist()
+        wrapped_cols = [textwrap.fill(str(c), width=25) for c in orig_cols]
+        rename_map = dict(zip(orig_cols, wrapped_cols))
+        df_line = df_line.rename(columns=rename_map)
+        fig = px.line(df_line, x="year", y=wrapped_cols, markers=True)
         fig.update_layout(title="Publicaciones por año y fuente", xaxis_title="Año", yaxis_title="Publicaciones")
         html_path = output_dir / "publications_timeline_by_source.html"
         fig.write_html(str(html_path))
@@ -367,12 +374,14 @@ def plot_publications_by_year_source(
         import matplotlib.pyplot as plt
 
         fig, ax = plt.subplots(figsize=(10, 6))
+        # For matplotlib fallback, wrap long legend labels to multiple lines
         for col in pivot.columns:
-            ax.plot(pivot.index, pivot[col], marker="o", label=str(col))
+            label = textwrap.fill(str(col), width=25)
+            ax.plot(pivot.index, pivot[col], marker="o", label=label)
         ax.set_xlabel("Año")
         ax.set_ylabel("Publicaciones")
         ax.set_title("Publicaciones por año y fuente")
-        ax.legend(loc="best")
+        ax.legend(loc="best", fontsize="small")
         plt.tight_layout()
         png_path = output_dir / "publications_timeline_by_source.png"
         fig.savefig(str(png_path), dpi=200)
