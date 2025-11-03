@@ -281,11 +281,12 @@ class TestOpenAlexService:
         df = pd.read_csv(csv_path, encoding='utf-8-sig')
         
         assert len(df) == 2
+        # Columnas esperadas (sin is_oa, source_title, source_type, publisher, cited_by_count)
+        # topics fue renombrado a keywords
         expected_columns = [
             'title', 'authors', 'affiliations', 'abstract', 'publication_date',
             'article_url', 'doi', 'publication_year',
-            'type', 'language', 'is_oa', 'source_title',
-            'source_type', 'publisher', 'cited_by_count', 'topics', 'license'
+            'type', 'language', 'keywords', 'license', 'journal'
         ]
         # The service may include geographic fields appended to the CSV. Accept
         # both the original expected columns and the extended set with geographic

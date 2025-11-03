@@ -357,6 +357,7 @@ class DataUnificationService:
                 'language': article.language,
                 'keywords': '; '.join(article.topics) if article.topics else '',
                 'license': article.license,
+                'journal': article.journal or '',
                 'data_source': getattr(article, 'source', 'Unknown'),
                 
                 # Datos geográficos

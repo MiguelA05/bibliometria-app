@@ -438,41 +438,49 @@ class TextSimilarityService:
         prep1 = self.preprocess_text(text1, 'standard')
         prep2 = self.preprocess_text(text2, 'standard')
         
-        # Vectorizar con TF-IDF
-        vectorizer = TfidfVectorizer(max_features=1000, ngram_range=(1, 3))
-        
+        # Validar que hay texto suficiente para vectorizar
         corpus = [prep1.processed_text, prep2.processed_text]
-        
-        try:
-            tfidf_matrix = vectorizer.fit_transform(corpus)
-            
-            # Calcular similitud coseno
-            similarity = cosine_similarity([tfidf_matrix[0]], [tfidf_matrix[1]])[0][0]
-            
-            # Extraer términos importantes
-            feature_names = vectorizer.get_feature_names_out()
-            tfidf1 = tfidf_matrix[0].toarray()[0]
-            tfidf2 = tfidf_matrix[1].toarray()[0]
-            
-            # Producto punto por término
-            term_contributions = []
-            for i, term in enumerate(feature_names):
-                contrib = tfidf1[i] * tfidf2[i]
-                if contrib > 0.01:  # Umbral
-                    term_contributions.append({
-                        'term': term,
-                        'contribution': float(contrib),
-                        'tfidf1': float(tfidf1[i]),
-                        'tfidf2': float(tfidf2[i])
-                    })
-            
-            term_contributions.sort(key=lambda x: x['contribution'], reverse=True)
-            top_terms = term_contributions[:20]
-            
-        except Exception as e:
+        if not corpus[0].strip() or not corpus[1].strip():
             similarity = 0
             top_terms = []
-            self.logger.error(f"Error in TF-IDF: {e}")
+            feature_names = []
+            term_contributions = []
+        else:
+            # Vectorizar con TF-IDF
+            vectorizer = TfidfVectorizer(max_features=1000, ngram_range=(1, 3), min_df=1)
+            
+            try:
+                tfidf_matrix = vectorizer.fit_transform(corpus)
+            
+                # Calcular similitud coseno
+                similarity = cosine_similarity([tfidf_matrix[0]], [tfidf_matrix[1]])[0][0]
+                
+                # Extraer términos importantes
+                feature_names = vectorizer.get_feature_names_out()
+                tfidf1 = tfidf_matrix[0].toarray()[0]
+                tfidf2 = tfidf_matrix[1].toarray()[0]
+                
+                # Producto punto por término
+                term_contributions = []
+                for i, term in enumerate(feature_names):
+                    contrib = tfidf1[i] * tfidf2[i]
+                    if contrib > 0.01:  # Umbral
+                        term_contributions.append({
+                            'term': term,
+                            'contribution': float(contrib),
+                            'tfidf1': float(tfidf1[i]),
+                            'tfidf2': float(tfidf2[i])
+                        })
+                
+                term_contributions.sort(key=lambda x: x['contribution'], reverse=True)
+                top_terms = term_contributions[:20]
+                
+            except Exception as e:
+                similarity = 0
+                top_terms = []
+                feature_names = []
+                term_contributions = []
+                self.logger.warning(f"Error in TF-IDF (texts may be too short): {e}")
         
         elapsed = (datetime.now() - start_time).total_seconds()
         

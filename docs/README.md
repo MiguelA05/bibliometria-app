@@ -4,8 +4,9 @@ Esta carpeta contiene toda la documentación técnica del sistema bibliométrico
 
 ## Archivos de Documentación
 
-- **ALGORITMO_UNIFICACION.md**: Explicación del algoritmo de unificación y detección de duplicados
+- **[INSTALACION.md](INSTALACION.md)**: 📦 Guía completa de instalación paso a paso
 - **DEPENDENCIAS_COMPLETAS.md**: Lista completa de dependencias del proyecto
+- **ALGORITMO_UNIFICACION.md**: Explicación del algoritmo de unificación y detección de duplicados
 - **GEOGRAPHIC_SERVICE_LOGIC.md**: Lógica implementada en el servicio geográfico
 - **IMPLEMENTACION_CROSSREF.md**: Documentación sobre la implementación de CrossRef (descontinuado)
 - **MEJORAS_PUBMED.md**: Mejoras implementadas en la extracción de keywords de PubMed
@@ -29,5 +30,6 @@ bibliometria-app/
 │   └── reports/   # Reportes de procesamiento
 └── README.md       # Documentación principal del proyecto
 ```
+
 
 

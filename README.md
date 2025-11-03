@@ -16,21 +16,69 @@ API para extracción de metadatos de artículos académicos usando OpenAlex, la 
 
 ## Instalación
 
-### 1. Instalar dependencias
+### Requisitos Previos
+
+- Python 3.8 o superior
+- pip (gestor de paquetes de Python)
+
+### Pasos de Instalación
+
+#### 1. Clonar el repositorio (si aún no lo has hecho)
 ```bash
-pip install -r requirements.txt
+git clone <url-del-repositorio>
+cd bibliometria-app
 ```
 
-### 2. Configurar entorno
+#### 2. Crear y activar entorno virtual (Recomendado)
 ```bash
-# Crear archivo de configuración
+# Crear entorno virtual
+python3 -m venv venv
+
+# Activar entorno virtual
+# Linux/Mac:
+source venv/bin/activate
+
+# Windows:
+venv\Scripts\activate
+```
+
+#### 3. Instalar dependencias
+```bash
+# Instalar todas las dependencias
+pip install -r requirements.txt
+
+# Descargar datos de NLTK (OBLIGATORIO para similitud textual)
+python -m nltk.downloader punkt stopwords
+```
+
+**Dependencias principales:**
+- Framework web: FastAPI, Uvicorn
+- Datos: pandas, numpy, requests
+- Validación: pydantic, pydantic-settings
+- Similitud textual: scikit-learn, nltk, sentence-transformers (opcional)
+
+**Nota:** `sentence-transformers` es opcional pero recomendado para algoritmos de IA.
+
+#### 4. Configurar entorno
+```bash
+# Crear archivo de configuración desde ejemplo
 cp env.example .env
 
-# O usar el script de inicio automático
-python start.py --setup
+# El archivo .env se crea automáticamente si no existe al ejecutar start.py
 ```
 
-### 3. Ejecutar la aplicación
+#### 5. Verificar instalación
+```bash
+# El script start.py verifica automáticamente las dependencias
+python start.py
+```
+
+### 📖 Guía de Instalación Detallada
+
+Para una guía completa con solución de problemas, ver: [docs/INSTALACION.md](docs/INSTALACION.md)
+
+### Ejecutar la aplicación
+
 ```bash
 # Opción 1: Script de inicio (recomendado)
 python start.py
@@ -87,7 +135,9 @@ curl http://localhost:8000/metrics
 
 ## Documentación
 
-- [OPENALEX_README.md](OPENALEX_README.md) - **Documentación completa de OpenAlex**
+- **[Guía de Instalación](docs/INSTALACION.md)** - Instrucciones detalladas de instalación
+- **[Dependencias Completas](docs/DEPENDENCIAS_COMPLETAS.md)** - Lista completa de dependencias
+- [README de Documentación](docs/README.md) - Índice de toda la documentación técnica
 
 ## Estructura del proyecto
 

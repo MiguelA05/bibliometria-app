@@ -216,6 +216,23 @@ class PubMedService:
                         if doi_match:
                             doi = doi_match.group(1).strip()
                     
+                    # Extraer journal/revista (buscar en múltiples campos del XML)
+                    journal = None
+                    # Prioridad 1: MedlineTA (Medline Title Abbreviation)
+                    journal_match = re.search(r'<MedlineTA>(.*?)</MedlineTA>', article_xml, re.DOTALL)
+                    if journal_match:
+                        journal = journal_match.group(1).strip()
+                    else:
+                        # Prioridad 2: Title completo
+                        title_match = re.search(r'<Title>(.*?)</Title>', article_xml, re.DOTALL)
+                        if title_match:
+                            journal = title_match.group(1).strip()
+                        else:
+                            # Prioridad 3: ISOAbbreviation
+                            iso_match = re.search(r'<ISOAbbreviation>(.*?)</ISOAbbreviation>', article_xml, re.DOTALL)
+                            if iso_match:
+                                journal = iso_match.group(1).strip()
+                    
                     # Extraer keywords/topics (MEJORADO con múltiples fuentes)
                     keywords = []
                     
@@ -260,7 +277,8 @@ class PubMedService:
                         'year': year,
                         'doi': doi,
                         'pmid': pmid,
-                        'topics': keywords
+                        'topics': keywords,
+                        'journal': journal
                     })
                     
                 except Exception as e:
@@ -284,6 +302,7 @@ class PubMedService:
             doi = article_data.get('doi')
             pmid = article_data.get('pmid')
             keywords = article_data.get('topics', [])  # En PubMed, topics son keywords
+            journal = article_data.get('journal')  # Journal extraído del XML
             
             # Construir URL de PubMed
             article_url = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}" if pmid else None
@@ -304,6 +323,7 @@ class PubMedService:
                 article_url=article_url,
                 language='en',
                 topics=keywords if keywords else None,  # En ArticleMetadata siguen siendo topics pero con keywords limpias
+                journal=journal,  # Journal extraído
                 # Asignar datos geográficos extraídos
                 author_countries=geo_data.get('author_countries', []),
                 author_cities=geo_data.get('author_cities', []),
@@ -347,6 +367,7 @@ class PubMedService:
                     'language': article.language or 'en',
                     'keywords': '; '.join(article.topics) if article.topics else '',
                     'license': article.license,
+                    'journal': article.journal or '',
                     'data_source': 'PubMed',
                     # Datos geográficos extraídos de afiliaciones
                     'author_countries': '; '.join(article.author_countries) if article.author_countries else '',

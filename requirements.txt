@@ -1,0 +1,38 @@
+# =============================================================================
+# Bibliometría App - Dependencias del Proyecto
+# =============================================================================
+
+# Framework Web y API
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+
+# Manejo de Datos
+pandas>=2.0.0
+numpy>=1.24.0
+requests>=2.31.0
+
+# Validación y Configuración
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# Logging Estructurado
+structlog>=23.2.0
+
+# Similitud Textual - Algoritmos Clásicos
+scikit-learn>=1.3.0
+nltk>=3.8.0
+
+# Similitud Textual - Algoritmos IA (Opcional pero Recomendado)
+sentence-transformers>=2.2.0
+
+# Cache (Opcional)
+redis>=5.0.0
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+
+# Utilidades
+python-dotenv>=1.0.0
+

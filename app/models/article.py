@@ -26,6 +26,9 @@ class ArticleMetadata(BaseModel):
     source_type: Optional[str] = None  # journal, conference, repository
     publisher: Optional[str] = None
     
+    # Información de journal/revista (unificado desde source_title para OpenAlex, extraído para PubMed)
+    journal: Optional[str] = None
+    
     # Métricas de impacto
     cited_by_count: Optional[int] = None
     

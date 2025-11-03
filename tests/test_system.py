@@ -52,11 +52,30 @@ def test_automation():
             files = result.get('generated_files', {})
             unified = files.get('unified_file', '')
             
-            if unified and os.path.exists(unified):
-                print(f"   [OK] Archivo: {os.path.basename(unified)}")
-                return True, unified
+            if unified:
+                # El path puede ser relativo o absoluto, normalizar
+                if not os.path.isabs(unified):
+                    # Si es relativo, buscar desde el directorio raíz del proyecto
+                    # (asumiendo que el script se ejecuta desde tests/)
+                    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                    unified = os.path.join(project_root, unified)
+                
+                if os.path.exists(unified):
+                    print(f"   [OK] Archivo: {os.path.basename(unified)}")
+                    return True, unified
+                else:
+                    print(f"   [ERROR] Archivo no encontrado en: {unified}")
+                    # Intentar buscar el archivo por nombre
+                    filename = os.path.basename(unified)
+                    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                    import glob
+                    found_files = glob.glob(os.path.join(project_root, "results/**", filename), recursive=True)
+                    if found_files:
+                        print(f"   [INFO] Archivo encontrado en ubicación alternativa: {found_files[0]}")
+                        return True, found_files[0]
+                    return True, None
             else:
-                print(f"   [ERROR] Archivo no encontrado")
+                print(f"   [ERROR] No se devolvió ruta de archivo")
                 return True, None
         else:
             print(f"   [ERROR] Error {response.status_code}")

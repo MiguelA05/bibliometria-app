@@ -209,6 +209,9 @@ class OpenAlexService:
                 source_type=source_info.get('type'),
                 publisher=work.get('primary_location', {}).get('publisher'),
                 
+                # Journal mapeado desde source_title (siempre que esté disponible)
+                journal=source_info.get('title') or None,
+                
                 # Métricas de impacto
                 cited_by_count=work.get('cited_by_count'),
                 
@@ -462,6 +465,7 @@ class OpenAlexService:
                     'language': article.language or 'en',
                     'keywords': '; '.join(article.topics) if article.topics else '',
                     'license': article.license,
+                    'journal': article.journal or '',
                     
                     # Datos geográficos
                     'author_countries': '; '.join(article.author_countries) if article.author_countries else '',

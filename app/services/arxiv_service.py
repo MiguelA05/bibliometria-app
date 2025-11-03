@@ -212,6 +212,7 @@ class ArXivService:
                 article_url=url,
                 language='en',  # Por defecto inglés para ArXiv
                 topics=None,  # ArXiv no tiene keywords reales, solo categorías
+                journal='ArXiv Preprint',  # ArXiv es un repositorio de preprints
                 # ArXiv NO tiene datos geográficos
                 author_countries=geo_data.get('author_countries', []),
                 author_cities=geo_data.get('author_cities', []),
@@ -255,6 +256,7 @@ class ArXivService:
                     'language': article.language or 'en',
                     'keywords': '; '.join(article.topics) if article.topics else '',
                     'license': article.license,
+                    'journal': article.journal or 'ArXiv Preprint',
                     'data_source': 'ArXiv',
                     # ArXiv NO tiene datos geográficos estructurados
                     'author_countries': '',
