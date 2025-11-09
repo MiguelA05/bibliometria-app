@@ -99,15 +99,28 @@ class PubMedService:
                      filters: Optional[Dict[str, Any]]) -> List[str]:
         """Buscar IDs de artículos en PubMed."""
         try:
+            # Transformar la consulta para PubMed
+            # PubMed funciona mejor con términos unidos por AND
+            # Usar AND entre términos para búsqueda más flexible
+            query_terms = query.split()
+            if len(query_terms) > 1:
+                # Unir términos con AND para búsqueda más amplia
+                pubmed_query = " AND ".join(query_terms)
+            else:
+                pubmed_query = query
+            
             params = {
                 'db': 'pubmed',
-                'term': query,
-                'retmax': min(max_articles, 100),
-                'retmode': 'json'
+                'term': pubmed_query,
+                'retmax': min(max_articles, 10000),  # PubMed permite hasta 10000
+                'retmode': 'json',
+                'retstart': 0
             }
             
             if filters and 'year' in filters:
-                params['term'] = f"{query} AND {filters['year']}[PDAT]"
+                params['term'] = f"({pubmed_query}) AND {filters['year']}[PDAT]"
+            
+            self.logger.debug(f"PubMed query: {params['term']}")
             
             response = self.session.get(
                 f"{self.base_url}/esearch.fcgi",
@@ -117,12 +130,41 @@ class PubMedService:
             response.raise_for_status()
             
             data = response.json()
-            pmids = data.get('esearchresult', {}).get('idlist', [])
+            esearch_result = data.get('esearchresult', {})
+            pmids = esearch_result.get('idlist', [])
+            total_found = int(esearch_result.get('count', '0'))
+            
+            self.logger.info(f"PubMed search found {total_found} total results, returning {len(pmids)} PMIDs")
+            
+            # Si hay más resultados que el máximo solicitado, obtener más
+            if total_found > len(pmids) and len(pmids) < max_articles:
+                # PubMed limita a 10000 por request, pero podemos hacer múltiples requests
+                retmax_per_request = 10000
+                retstart = len(pmids)
+                
+                while len(pmids) < max_articles and retstart < total_found:
+                    params['retstart'] = retstart
+                    params['retmax'] = min(retmax_per_request, max_articles - len(pmids))
+                    
+                    response = self.session.get(
+                        f"{self.base_url}/esearch.fcgi",
+                        params=params,
+                        timeout=30
+                    )
+                    response.raise_for_status()
+                    
+                    data = response.json()
+                    new_pmids = data.get('esearchresult', {}).get('idlist', [])
+                    pmids.extend(new_pmids)
+                    retstart += len(new_pmids)
+                    
+                    if not new_pmids:
+                        break
             
             return pmids[:max_articles]
             
         except Exception as e:
-            self.logger.error(f"Error searching PMIDs: {e}")
+            self.logger.error(f"Error searching PMIDs: {e}", exc_info=True)
             return []
     
     def _fetch_article_details(self, pmids: List[str]) -> List[Optional[Dict[str, Any]]]:
@@ -311,10 +353,13 @@ class PubMedService:
             geo_data = self.geographic_service.extract_geographic_data_from_affiliation_text(affiliations_list)
             
             # Crear objeto ArticleMetadata
+            # Asegurar que abstract sea siempre un string, no None
+            abstract_str = abstract if abstract else ""
+            
             article = ArticleMetadata(
                 title=title,
                 authors=authors_list if authors_list else [],
-                abstract=abstract if abstract else None,
+                abstract=abstract_str,
                 affiliations=affiliations_list if affiliations_list else [],
                 publication_year=year,
                 publication_date=f"{year}-01-01" if year else None,  # Inferir fecha

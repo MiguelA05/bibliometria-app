@@ -398,16 +398,56 @@ class MenuPrincipal:
                 print("[ERROR] Necesitas al menos 2 artículos para comparar")
                 return
             
+            # Filtrar artículos sin abstract válido
+            valid_articles = []
+            invalid_articles = []
+            
+            for art in articles_data:
+                abstract = str(art.get('abstract', '')).strip()
+                abstract_lower = abstract.lower()
+                # Verificar si el abstract es válido
+                if (abstract and 
+                    abstract_lower != '' and 
+                    abstract_lower != 'none' and 
+                    abstract_lower != 'nan' and
+                    'abstract not available' not in abstract_lower and
+                    len(abstract) > 20):  # Mínimo 20 caracteres
+                    valid_articles.append(art)
+                else:
+                    invalid_articles.append(art)
+            
+            if len(valid_articles) < 2:
+                print("\n[ERROR] Se necesitan al menos 2 artículos con abstracts válidos para comparar")
+                if invalid_articles:
+                    print("\n[INFO] Artículos sin abstract válido:")
+                    for art in invalid_articles:
+                        abstract_preview = str(art.get('abstract', 'N/A'))[:50]
+                        print(f"  - Artículo {art['index']+1}: {art['title'][:60]}...")
+                        print(f"    Abstract: {abstract_preview}...")
+                return
+            
+            if invalid_articles:
+                print("\n[ADVERTENCIA] Algunos artículos no tienen abstract válido y serán excluidos:")
+                for art in invalid_articles:
+                    abstract_preview = str(art.get('abstract', 'N/A'))[:50]
+                    print(f"  - Artículo {art['index']+1}: {art['title'][:60]}...")
+                    print(f"    Abstract: {abstract_preview}...")
+                print(f"\n[INFO] Se usarán {len(valid_articles)} artículos con abstracts válidos")
+            
+            articles_data = valid_articles
+            
             print("\n" + "="*70)
             print("ANÁLISIS DE SIMILITUD TEXTUAL")
             print("="*70)
             
             # Mostrar artículos seleccionados
-            print("\nArtículos seleccionados:")
+            print("\nArtículos seleccionados (con abstracts válidos):")
             for art in articles_data:
+                abstract_preview = art['abstract'][:100] if len(art['abstract']) > 100 else art['abstract']
                 print(f"\n  Artículo {art['index']+1}:")
                 print(f"    Título: {art['title'][:70]}...")
-                print(f"    Abstract (primeros 100 chars): {art['abstract'][:100]}...")
+                print(f"    Abstract (primeros 100 chars): {abstract_preview}...")
+                print(f"    Longitud del abstract: {len(art['abstract'])} caracteres")
             
             # Menú de algoritmos
             print("\n" + "="*70)

@@ -462,18 +462,35 @@ class TextSimilarityService:
         """
         start_time = datetime.now()
         
-        prep1_tfidf = self.preprocess_text(text1, 'token-level')
-        prep2_tfidf = self.preprocess_text(text2, 'token-level')
+        # Limpieza más robusta del texto
+        def clean_text_for_tfidf(text: str) -> str:
+            """Limpiar texto para TF-IDF de manera robusta."""
+            if not text or not isinstance(text, str):
+                return ""
+            
+            # Convertir a string y normalizar
+            text = str(text).strip()
+            
+            # Remover caracteres no ASCII problemáticos pero mantener letras acentuadas
+            text = unicodedata.normalize('NFKD', text)
+            
+            # Remover caracteres especiales excepto espacios y letras/números
+            text = re.sub(r'[^\w\s]', ' ', text)
+            
+            # Normalizar espacios
+            text = re.sub(r'\s+', ' ', text).strip()
+            
+            # Asegurar que solo contenga palabras separadas por espacios
+            words = text.split()
+            # Filtrar palabras que sean solo números o muy cortas
+            words = [w for w in words if len(w) > 1 and not w.isdigit()]
+            
+            return ' '.join(words)
         
-        text1_clean = prep1_tfidf.processed_text.strip() if prep1_tfidf.processed_text else ""
-        text2_clean = prep2_tfidf.processed_text.strip() if prep2_tfidf.processed_text else ""
+        text1_clean = clean_text_for_tfidf(text1)
+        text2_clean = clean_text_for_tfidf(text2)
         
-        text1_clean = re.sub(r'[^\w\s]', ' ', text1_clean)
-        text2_clean = re.sub(r'[^\w\s]', ' ', text2_clean)
-        text1_clean = re.sub(r'\s+', ' ', text1_clean).strip()
-        text2_clean = re.sub(r'\s+', ' ', text2_clean).strip()
-        
-        if not text1_clean or not text2_clean:
+        if not text1_clean or not text2_clean or len(text1_clean) < 3 or len(text2_clean) < 3:
             similarity = 0
             top_terms = []
             feature_names = []
@@ -482,13 +499,17 @@ class TextSimilarityService:
             corpus = [text1_clean, text2_clean]
             
             try:
+                # Configuración más robusta del vectorizador
                 vectorizer = TfidfVectorizer(
                     max_features=500,
                     ngram_range=(1, 1),
                     min_df=1,
-                    token_pattern=r'(?u)\b\w+\b',
+                    max_df=1.0,
+                    token_pattern=r'(?u)\b\w{2,}\b',  # Mínimo 2 caracteres por token
                     lowercase=True,
-                    analyzer='word'
+                    analyzer='word',
+                    strip_accents='unicode',
+                    sublinear_tf=False  # Evitar problemas numéricos
                 )
                 
                 tfidf_matrix = vectorizer.fit_transform(corpus)
@@ -496,21 +517,30 @@ class TextSimilarityService:
                 if tfidf_matrix.shape[0] < 2 or tfidf_matrix.shape[1] == 0:
                     raise ValueError("Matriz TF-IDF insuficiente")
                 
-                similarity = cosine_similarity([tfidf_matrix[0]], [tfidf_matrix[1]])[0][0]
+                # Convertir a arrays densos de forma segura
+                matrix_array = tfidf_matrix.toarray()
                 
+                if matrix_array.shape[0] < 2:
+                    raise ValueError("Matriz TF-IDF insuficiente")
+                
+                similarity = cosine_similarity([matrix_array[0]], [matrix_array[1]])[0][0]
+                
+                # Asegurar que los valores sean escalares
                 feature_names = vectorizer.get_feature_names_out()
-                tfidf1 = tfidf_matrix[0].toarray()[0]
-                tfidf2 = tfidf_matrix[1].toarray()[0]
+                tfidf1 = matrix_array[0]
+                tfidf2 = matrix_array[1]
                 
                 term_contributions = []
                 for i, term in enumerate(feature_names):
-                    contrib = tfidf1[i] * tfidf2[i]
+                    val1 = float(tfidf1[i])
+                    val2 = float(tfidf2[i])
+                    contrib = val1 * val2
                     if contrib > 0.01:
                         term_contributions.append({
                             'term': str(term),
-                            'contribution': float(contrib),
-                            'tfidf1': float(tfidf1[i]),
-                            'tfidf2': float(tfidf2[i])
+                            'contribution': contrib,
+                            'tfidf1': val1,
+                            'tfidf2': val2
                         })
                 
                 term_contributions.sort(key=lambda x: x['contribution'], reverse=True)

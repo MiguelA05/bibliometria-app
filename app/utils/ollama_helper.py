@@ -152,7 +152,8 @@ def generate_with_ollama(
     model: str = "llama3.2:3b",
     system_prompt: Optional[str] = None,
     temperature: float = 0.7,
-    max_tokens: int = 500
+    max_tokens: int = 500,
+    seed: Optional[int] = None
 ) -> Optional[str]:
     """
     Generar texto usando Ollama.
@@ -161,8 +162,9 @@ def generate_with_ollama(
         prompt: Prompt del usuario
         model: Nombre del modelo (default: llama3.2:3b)
         system_prompt: Prompt del sistema (opcional)
-        temperature: Temperatura para la generación (0.0-1.0)
+        temperature: Temperatura para la generación (0.0-1.0). 0.0 = determinístico
         max_tokens: Máximo número de tokens a generar
+        seed: Seed para reproducibilidad (opcional). Si se proporciona, hace la generación determinística
         
     Returns:
         Texto generado o None si hay error
@@ -187,6 +189,10 @@ def generate_with_ollama(
                 "num_predict": max_tokens
             }
         }
+        
+        # Agregar seed si se proporciona (para reproducibilidad)
+        if seed is not None:
+            payload["options"]["seed"] = seed
         
         if system_prompt:
             payload["system"] = system_prompt
@@ -224,12 +230,28 @@ def analyze_similarity_with_llm(text1: str, text2: str, model: str = "llama3.2:3
     Returns:
         Diccionario con análisis de similitud
     """
+    # Prompt más estructurado y determinístico
     system_prompt = """Eres un experto en análisis de similitud textual. 
-Analiza dos textos y determina su similitud semántica y temática.
-Responde SOLO con un número entre 0.0 y 1.0 que represente la similitud, seguido de una breve justificación (máximo 2 frases).
-Formato: SCORE: 0.XX - JUSTIFICACIÓN"""
+Tu tarea es analizar dos textos y determinar su similitud semántica y temática de manera consistente y objetiva.
+
+INSTRUCCIONES:
+1. Evalúa la similitud considerando: temas comunes, vocabulario compartido, estructura semántica
+2. Asigna un score entre 0.0 y 1.0 donde:
+   - 0.0-0.2: Textos completamente diferentes
+   - 0.2-0.4: Textos con algunos temas comunes pero diferentes enfoques
+   - 0.4-0.6: Textos similares con temas relacionados
+   - 0.6-0.8: Textos muy similares con temas y enfoques cercanos
+   - 0.8-1.0: Textos casi idénticos o muy relacionados
+3. Responde EXACTAMENTE en el formato: SCORE: X.XX - JUSTIFICACIÓN (máximo 2 frases)
+4. Sé consistente: textos similares deben recibir scores similares"""
     
-    user_prompt = f"""Analiza la similitud entre estos dos textos:
+    # Crear hash de los textos para usar como seed adicional (más determinístico)
+    import hashlib
+    text_hash = hashlib.md5(f"{text1[:1000]}{text2[:1000]}".encode()).hexdigest()
+    # Usar los primeros 8 caracteres del hash como seed adicional
+    text_seed = int(text_hash[:8], 16) % (2**31)  # Limitar a rango de int32
+    
+    user_prompt = f"""Analiza la similitud entre estos dos textos de manera objetiva y consistente:
 
 TEXTO 1:
 {text1[:1000]}
@@ -237,14 +259,18 @@ TEXTO 1:
 TEXTO 2:
 {text2[:1000]}
 
-Proporciona un score de similitud entre 0.0 y 1.0 y una breve justificación."""
+Evalúa la similitud semántica y temática. Responde EXACTAMENTE en el formato:
+SCORE: X.XX - JUSTIFICACIÓN"""
     
+    # Usar temperatura muy baja y seed basado en el contenido para consistencia
+    # El seed se basa en el hash de los textos, así que textos idénticos siempre dan el mismo resultado
     response = generate_with_ollama(
         prompt=user_prompt,
         model=model,
         system_prompt=system_prompt,
-        temperature=0.3,  # Baja temperatura para respuestas más consistentes
-        max_tokens=200
+        temperature=0.0,  # Temperatura 0 para máxima consistencia (determinístico)
+        max_tokens=200,
+        seed=text_seed  # Seed basado en el contenido de los textos para reproducibilidad
     )
     
     if not response:
