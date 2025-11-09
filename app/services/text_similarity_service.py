@@ -34,6 +34,20 @@ except ImportError:
     SENTENCE_BERT_AVAILABLE = False
     print("[WARNING] sentence-transformers no está instalado. Algoritmos de embeddings no estarán disponibles.")
 
+try:
+    from app.utils.ollama_helper import (
+        ensure_ollama_ready,
+        analyze_similarity_with_llm,
+        check_model_available,
+        OLLAMA_AVAILABLE
+    )
+except ImportError:
+    OLLAMA_AVAILABLE = False
+    ensure_ollama_ready = None
+    analyze_similarity_with_llm = None
+    check_model_available = None
+    print("[WARNING] Ollama helper no disponible. Algoritmo LLM-based usará modo simulado.")
+
 from app.utils.logger import get_logger
 from app.config import settings
 
@@ -61,8 +75,9 @@ class TextPreprocessingResult:
 class TextSimilarityService:
     """Servicio para análisis de similitud textual con múltiples algoritmos."""
     
-    def __init__(self):
+    def __init__(self, ollama_model: str = "llama3.2:3b"):
         self.logger = get_logger("text_similarity")
+        self.ollama_model = ollama_model
         
         # Inicializar stemmer
         try:
@@ -81,6 +96,18 @@ class TextSimilarityService:
             except Exception as e:
                 self.logger.warning(f"Could not load Sentence-BERT model: {e}")
                 self.sbert_model = None
+        
+        # Verificar Ollama si está disponible
+        self.ollama_available = False
+        if OLLAMA_AVAILABLE:
+            try:
+                if ensure_ollama_ready():
+                    self.ollama_available = True
+                    self.logger.info(f"Ollama disponible. Modelo configurado: {ollama_model}")
+                else:
+                    self.logger.warning("Ollama no está disponible. LLM-based similarity usará modo simulado.")
+            except Exception as e:
+                self.logger.warning(f"Error verificando Ollama: {e}")
     
     def preprocess_text(self, text: str, method: str = 'standard') -> TextPreprocessingResult:
         """
@@ -562,46 +589,112 @@ class TextSimilarityService:
     
     def llm_based_similarity(self, text1: str, text2: str) -> SimilarityResult:
         """
-        Algoritmo 6: LLM-based Similarity (simulado para demostración).
+        Algoritmo 6: LLM-based Similarity usando Ollama (modelo local).
         
-        En producción, esto podría usar OpenAI API, GPT, etc.
+        REQUIERE Ollama instalado y el servidor corriendo.
+        Usa un modelo LLM local (Llama 3.2 3B o Mistral 7B) para análisis semántico profundo.
+        
+        Raises:
+            RuntimeError: Si Ollama no está disponible o no se puede conectar.
         """
         start_time = datetime.now()
         
-        # Simular análisis de LLM (implementación real requeriría API)
+        # Verificar que Ollama esté disponible
+        if not OLLAMA_AVAILABLE or not self.ollama_available:
+            error_msg = (
+                "Ollama no está disponible. "
+                "Para usar el algoritmo LLM-based Similarity, necesitas:\n"
+                "1. Instalar Ollama: bash scripts/install_ollama.sh\n"
+                "2. Iniciar el servidor: ollama serve\n"
+                "3. Descargar un modelo: ollama pull llama3.2:3b"
+            )
+            self.logger.error(error_msg)
+            raise RuntimeError(error_msg)
+        
+        # Preprocesar textos
         prep1 = self.preprocess_text(text1, 'standard')
         prep2 = self.preprocess_text(text2, 'standard')
         
-        # Análisis simple simulando razonamiento de LLM
-        common_topics = self._extract_common_topics(prep1.tokens, prep2.tokens)
-        semantic_overlap = len(common_topics) / max(len(set(prep1.tokens)), len(set(prep2.tokens))) if max(len(set(prep1.tokens)), len(set(prep2.tokens))) > 0 else 0
-        
-        score = semantic_overlap * 0.7 + 0.3  # Simular score de LLM
-        
-        justification = f"""
-        Based on semantic analysis:
-        - Common themes identified: {len(common_topics)}
-        - Topics: {', '.join(list(common_topics)[:5])}
-        - Conceptual overlap: {semantic_overlap:.2%}
-        - LLM confidence: {'High' if score > 0.7 else 'Medium' if score > 0.4 else 'Low'}
-        """
-        
-        elapsed = (datetime.now() - start_time).total_seconds()
-        
-        details = {
-            'similarity': score,
-            'common_topics': list(common_topics)[:10],
-            'semantic_overlap': semantic_overlap,
-            'justification': justification
-        }
-        
-        return SimilarityResult(
-            algorithm_name="LLM-based Similarity (Simulated)",
-            similarity_score=score,
-            explanation=justification,
-            details=details,
-            processing_time=elapsed
-        )
+        # Usar Ollama para análisis de similitud
+        try:
+            self.logger.info(f"Usando Ollama con modelo {self.ollama_model} para análisis LLM")
+            
+            # Verificar que el modelo esté disponible
+            if analyze_similarity_with_llm is None:
+                error_msg = (
+                    f"No se puede usar Ollama. "
+                    f"Verifica que el servidor esté corriendo y que el modelo {self.ollama_model} esté disponible."
+                )
+                self.logger.error(error_msg)
+                raise RuntimeError(error_msg)
+            
+            # Usar Ollama para análisis de similitud
+            llm_result = analyze_similarity_with_llm(
+                text1=prep1.processed_text,
+                text2=prep2.processed_text,
+                model=self.ollama_model
+            )
+            
+            if llm_result is None or llm_result.get("score") is None:
+                error_msg = (
+                    f"Error al obtener respuesta de Ollama. "
+                    f"Verifica que el servidor esté corriendo y que el modelo {self.ollama_model} esté disponible."
+                )
+                self.logger.error(error_msg)
+                raise RuntimeError(error_msg)
+            
+            score = llm_result["score"]
+            justification = llm_result["justification"]
+            raw_response = llm_result.get("raw_response", "")
+            
+            # Análisis adicional con tokens comunes
+            common_topics = self._extract_common_topics(prep1.tokens, prep2.tokens)
+            semantic_overlap = len(common_topics) / max(len(set(prep1.tokens)), len(set(prep2.tokens))) if max(len(set(prep1.tokens)), len(set(prep2.tokens))) > 0 else 0
+            
+            explanation = f"""
+            LLM-based Similarity (Ollama - {self.ollama_model}):
+            - Score de similitud: {score:.3f}
+            - Justificación del modelo: {justification}
+            - Temas comunes identificados: {len(common_topics)}
+            - Overlap semántico: {semantic_overlap:.2%}
+            - Modelo usado: {self.ollama_model}
+            - Método: Análisis LLM real (no simulado)
+            """
+            
+            elapsed = (datetime.now() - start_time).total_seconds()
+            
+            details = {
+                'similarity': score,
+                'model': self.ollama_model,
+                'justification': justification,
+                'raw_llm_response': raw_response,
+                'common_topics': list(common_topics)[:10],
+                'semantic_overlap': semantic_overlap,
+                'method': 'ollama_llm',
+                'ollama_available': True
+            }
+            
+            return SimilarityResult(
+                algorithm_name=f"LLM-based Similarity (Ollama - {self.ollama_model})",
+                similarity_score=score,
+                explanation=explanation,
+                details=details,
+                processing_time=elapsed
+            )
+            
+        except RuntimeError:
+            # Re-lanzar errores de RuntimeError (Ollama no disponible)
+            raise
+        except Exception as e:
+            error_msg = (
+                f"Error al usar Ollama para análisis LLM: {e}\n"
+                f"Verifica que:\n"
+                f"1. El servidor Ollama esté corriendo: ollama serve\n"
+                f"2. El modelo {self.ollama_model} esté disponible: ollama list\n"
+                f"3. Si el modelo no está disponible, descárgalo: ollama pull {self.ollama_model}"
+            )
+            self.logger.error(error_msg)
+            raise RuntimeError(error_msg) from e
     
     # ==================== MÉTODOS AUXILIARES ====================
     
