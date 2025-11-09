@@ -78,7 +78,7 @@ def collect_documents(
 	*,
 	text_field: str | int = "abstract",
 	label_field: str | int | None = "title",
-	limit: int | None = 40,
+	limit: int | None = None,
 	min_chars: int = 40,
 	drop_duplicates: bool = True,
 ) -> List[DocumentRecord]:
@@ -298,8 +298,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 	parser.add_argument(
 		"--limit",
 		type=int,
-		default=40,
-		help="Número máximo de documentos a procesar (más de 50 dificulta la lectura del dendrograma)",
+		default=None,
+		help="Número máximo de documentos a procesar (por defecto: sin límite).",
 	)
 	parser.add_argument(
 		"--min-chars",
@@ -373,14 +373,13 @@ def main(argv: Sequence[str] | None = None) -> None:
 		drop_duplicates=not args.keep_duplicates,
 	)
 
-	# Limitar a los primeros 30 documentos para los dendrogramas (o menos si no hay tantos)
-	max_for_dendrogram = 30
-	if len(documents) > max_for_dendrogram:
-		print(f"Se han cargado {len(documents)} documentos; se usarán los primeros {max_for_dendrogram} para los dendrogramas.")
-		documents = documents[:max_for_dendrogram]
-	else:
-		print(f"Documentos cargados: {len(documents)}")
+	n_docs = len(documents)
+	print(f"Documentos cargados: {n_docs}")
 
+	# Vectorizar TODOS los documentos (sin recorte). Los dendrogramas se
+	# dibujarán únicamente sobre una muestra (primeras M) para mantener
+	# legibilidad, pero el clustering y las métricas se calculan sobre el
+	# conjunto completo.
 	dense_matrix, _ = vectorize_documents(
 		documents,
 		stopwords=DEFAULT_STOPWORDS,
@@ -389,22 +388,45 @@ def main(argv: Sequence[str] | None = None) -> None:
 
 	labels = [f"{doc.row_index}. {doc.label}" for doc in documents]
 
+	# Número máximo de hojas a mostrar en cada dendrograma (visualización)
+	max_for_dendrogram = 30
+	if n_docs > max_for_dendrogram:
+		print(f"Nota: se generarán dendrogramas usando sólo las primeras {max_for_dendrogram} muestras para visualización.")
+
 	results_summary = []
 	best_cophenetic = float("-inf")
 	best_by_cophenetic = None
 	for method in methods:
 		metric = "euclidean" if method == "ward" else "cosine"
 		print(f"\n=== Ejecutando método: {method} (métrica: {metric}) ===")
-		# Calcular linkage y vector de distancias
+		# Calcular linkage y vector de distancias sobre TODOS los documentos
 		linkage_matrix, distance_vector = compute_linkage(dense_matrix, method=method, metric=metric)
-		output_path = plot_dendrogram(
-			linkage_matrix,
-			labels,
-			method=method,
-			metric=metric,
-			output_dir=args.output_dir,
-			show_plot=args.show,
-		)
+
+		# Para la visualización, generar un linkage sobre una muestra (primeras M)
+		sample_n = min(n_docs, max_for_dendrogram)
+		if sample_n >= 2 and sample_n < n_docs:
+			print(f"Generando dendrograma sobre una muestra de {sample_n} documentos (visualización)")
+			linkage_sample, _ = compute_linkage(dense_matrix[:sample_n], method=method, metric=metric)
+			sample_labels = labels[:sample_n]
+			output_path = plot_dendrogram(
+				linkage_sample,
+				sample_labels,
+				method=method,
+				metric=metric,
+				output_dir=args.output_dir,
+				show_plot=args.show,
+			)
+		else:
+			# Si hay pocos documentos, usar el linkage completo para la imagen
+			output_path = plot_dendrogram(
+				linkage_matrix,
+				labels,
+				method=method,
+				metric=metric,
+				output_dir=args.output_dir,
+				show_plot=args.show,
+			)
+
 		print(f"Dendrograma guardado en: {output_path}")
 
 		cluster_assignments = hierarchy.fcluster(
