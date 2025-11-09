@@ -63,22 +63,44 @@ class PubMedService:
         try:
             self.logger.info(f"Searching PubMed: {query}")
             
-            # 1. Buscar IDs de artículos
-            pmids = self._search_pmids(query, max_articles, filters)
+            # 1. Buscar IDs de artículos (buscar más de los necesarios para compensar sin abstract)
+            pmids = self._search_pmids(query, max_articles * 2, filters)  # Buscar 2x para compensar
             
             if not pmids:
                 self.logger.warning("No articles found in PubMed")
-                return [], ""
+                # Generar CSV vacío para mantener consistencia
+                csv_file_path = self._export_to_csv([], query)
+                return [], csv_file_path
             
             # 2. Obtener detalles de cada artículo
             article_details = self._fetch_article_details(pmids)
             
-            # 3. Procesar cada artículo
+            # 3. Procesar cada artículo hasta obtener max_articles con abstracts válidos
             for article_data in article_details:
+                if len(articles) >= max_articles:
+                    break
+                    
                 if article_data:
                     article = self._process_article(article_data)
                     if article:
-                        articles.append(article)
+                        # Verificar que el abstract sea válido
+                        abstract = article.abstract or ""
+                        abstract_lower = abstract.lower().strip()
+                        
+                        if (abstract and 
+                            abstract_lower != '' and 
+                            abstract_lower != 'none' and 
+                            abstract_lower != 'nan' and
+                            'abstract not available' not in abstract_lower and
+                            len(abstract) > 20):  # Mínimo 20 caracteres
+                            articles.append(article)
+                        else:
+                            self.logger.debug(f"Skipping PubMed article without valid abstract: {article.title[:50]}...")
+            
+            if len(articles) < max_articles:
+                self.logger.warning(
+                    f"Only found {len(articles)} PubMed articles with valid abstracts out of {max_articles} requested"
+                )
             
             # 4. Exportar a CSV
             csv_file_path = self._export_to_csv(articles, query)
@@ -100,12 +122,14 @@ class PubMedService:
         """Buscar IDs de artículos en PubMed."""
         try:
             # Transformar la consulta para PubMed
-            # PubMed funciona mejor con términos unidos por AND
-            # Usar AND entre términos para búsqueda más flexible
+            # PubMed funciona mejor con búsqueda flexible que combine frase exacta y términos
             query_terms = query.split()
             if len(query_terms) > 1:
-                # Unir términos con AND para búsqueda más amplia
-                pubmed_query = " AND ".join(query_terms)
+                # Usar búsqueda flexible: frase exacta O términos con AND
+                # Esto aumenta las posibilidades de encontrar resultados
+                phrase_query = f'"{query}"'
+                and_query = " AND ".join(query_terms)
+                pubmed_query = f"({phrase_query}) OR ({and_query})"
             else:
                 pubmed_query = query
             
@@ -423,7 +447,19 @@ class PubMedService:
                 }
                 articles_data.append(article_dict)
             
-            df = pd.DataFrame(articles_data)
+            # Crear DataFrame - si está vacío, crear uno con las columnas correctas
+            if articles_data:
+                df = pd.DataFrame(articles_data)
+            else:
+                # Crear DataFrame vacío con las columnas correctas
+                df = pd.DataFrame(columns=[
+                    'title', 'authors', 'affiliations', 'abstract', 'publication_date',
+                    'article_url', 'doi', 'publication_year', 'type', 'language',
+                    'keywords', 'license', 'journal', 'data_source',
+                    'author_countries', 'author_cities', 'institution_countries',
+                    'institution_cities', 'geographic_coordinates'
+                ])
+            
             df.to_csv(file_path, index=False, encoding=settings.csv_encoding)
             
             self.logger.info(f"Exported {len(articles)} articles to {file_path}")

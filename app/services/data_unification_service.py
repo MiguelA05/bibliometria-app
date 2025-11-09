@@ -108,12 +108,36 @@ class DataUnificationService:
                     filters=source.filters
                 )
                 
-                # Marcar cada artículo con su fuente
-                for article in articles:
-                    article.source = source.name
+                # Filtrar artículos con abstracts válidos antes de agregar
+                valid_articles = []
+                invalid_count = 0
                 
-                all_articles.extend(articles)
-                self.logger.info(f"Downloaded {len(articles)} articles from {source.name}")
+                for article in articles:
+                    abstract = article.abstract or ""
+                    abstract_lower = abstract.lower().strip()
+                    
+                    if (abstract and 
+                        abstract_lower != '' and 
+                        abstract_lower != 'none' and 
+                        abstract_lower != 'nan' and
+                        'abstract not available' not in abstract_lower and
+                        len(abstract) > 20):  # Mínimo 20 caracteres
+                        # Marcar artículo con su fuente
+                        article.source = source.name
+                        valid_articles.append(article)
+                    else:
+                        invalid_count += 1
+                
+                all_articles.extend(valid_articles)
+                
+                if invalid_count > 0:
+                    self.logger.warning(
+                        f"Filtered out {invalid_count} articles without valid abstracts from {source.name}"
+                    )
+                
+                self.logger.info(
+                    f"Downloaded {len(valid_articles)} articles with valid abstracts from {source.name}"
+                )
                 
             except Exception as e:
                 self.logger.error(f"Error downloading from {source.name}: {e}")

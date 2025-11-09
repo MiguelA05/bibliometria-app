@@ -80,11 +80,46 @@ class ArXivService:
             xml_content = response.text
             articles_data = self._parse_arxiv_response(xml_content)
             
-            # Procesar cada artículo
+            # Buscar más artículos si es necesario para compensar los sin abstract
+            if len(articles_data) < max_articles:
+                # Intentar obtener más resultados
+                additional_needed = max_articles - len(articles_data)
+                params['start'] = len(articles_data)
+                params['max_results'] = min(additional_needed * 2, 100)  # Buscar 2x para compensar
+                
+                try:
+                    response = self.session.get(self.base_url, params=params, timeout=self.timeout)
+                    response.raise_for_status()
+                    additional_data = self._parse_arxiv_response(response.text)
+                    articles_data.extend(additional_data)
+                except Exception as e:
+                    self.logger.warning(f"Could not fetch additional ArXiv articles: {e}")
+            
+            # Procesar cada artículo hasta obtener max_articles con abstracts válidos
             for article_data in articles_data:
+                if len(articles) >= max_articles:
+                    break
+                    
                 article = self._process_article(article_data)
                 if article:
-                    articles.append(article)
+                    # Verificar que el abstract sea válido
+                    abstract = article.abstract or ""
+                    abstract_lower = abstract.lower().strip()
+                    
+                    if (abstract and 
+                        abstract_lower != '' and 
+                        abstract_lower != 'none' and 
+                        abstract_lower != 'nan' and
+                        'abstract not available' not in abstract_lower and
+                        len(abstract) > 20):  # Mínimo 20 caracteres
+                        articles.append(article)
+                    else:
+                        self.logger.debug(f"Skipping ArXiv article without valid abstract: {article.title[:50]}...")
+            
+            if len(articles) < max_articles:
+                self.logger.warning(
+                    f"Only found {len(articles)} ArXiv articles with valid abstracts out of {max_articles} requested"
+                )
             
             # Exportar a CSV
             csv_file_path = self._export_to_csv(articles, query)
@@ -184,11 +219,14 @@ class ArXivService:
         try:
             title = article_data.get('title', 'No title')
             authors = article_data.get('authors', [])
-            abstract = article_data.get('abstract')
+            abstract_raw = article_data.get('abstract')
             year = article_data.get('year')
             url = article_data.get('url')
             categories = article_data.get('categories', [])
             affiliations_list = article_data.get('affiliations', [])
+            
+            # Asegurar que abstract sea siempre un string (no None)
+            abstract = abstract_raw if abstract_raw else ""
             
             # ArXiv no proporciona afiliaciones ni datos geográficos
             # Pero asignamos campos vacíos para consistencia

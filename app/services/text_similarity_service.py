@@ -331,22 +331,30 @@ class TextSimilarityService:
             for j in range(1, m + 1):
                 cost = 0 if s1[i-1] == s2[j-1] else 1
                 
-                dp[i][j] = min(
-                    dp[i-1][j] + 1,
-                    dp[i][j-1] + 1,
-                    dp[i-1][j-1] + cost
+                # Calcular operaciones estándar
+                standard_min = min(
+                    dp[i-1][j] + 1,      # inserción
+                    dp[i][j-1] + 1,      # eliminación
+                    dp[i-1][j-1] + cost   # sustitución
                 )
                 
+                # Verificar transposición (Damerau)
+                transposition_applied = False
                 if (i > 1 and j > 1 and 
                     s1[i-1] == s2[j-2] and s1[i-2] == s2[j-1] and
-                    s1[i-1] != s1[i-2]):
+                    s1[i-1] != s1[i-2]):  # Solo si los caracteres son diferentes
                     transposition_cost = dp[i-2][j-2] + 1
-                    if transposition_cost < dp[i][j]:
+                    if transposition_cost < standard_min:
                         dp[i][j] = transposition_cost
+                        transposition_applied = True
+                        # Registrar transposición solo si realmente se aplicó
                         trans_pos = (i-2, j-2)
                         if trans_pos not in transpositions_used:
                             transpositions_used.add(trans_pos)
                             transpositions.append((i-2, j-2, s1[i-2:i], s2[j-2:j]))
+                
+                if not transposition_applied:
+                    dp[i][j] = standard_min
         
         distance = dp[n][m]
         max_len = max(n, m)

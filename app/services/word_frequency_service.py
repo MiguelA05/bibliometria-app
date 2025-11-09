@@ -49,15 +49,24 @@ class WordFrequencyService:
     contextual y genera estadísticas de uso de términos clave.
     """
     
+    # Palabras asociadas según el Requerimiento 3
     GENERATIVE_AI_EDUCATION_WORDS = {
-        'generative', 'artificial', 'intelligence', 'ai',
-        'education', 'learning', 'teaching', 'pedagogy', 'pedagogical',
-        'student', 'students', 'teacher', 'teachers', 'classroom',
-        'curriculum', 'instruction', 'assessment', 'evaluation',
-        'chatgpt', 'gpt', 'llm', 'large language model', 'language model',
-        'machine learning', 'deep learning', 'neural network',
-        'personalized', 'adaptive', 'intelligent tutoring',
-        'educational technology', 'edtech', 'digital learning'
+        # Palabras exactas del requerimiento
+        'generative models', 'generative model',
+        'prompting', 'prompt',
+        'machine learning', 'machine-learning',
+        'multimodality', 'multimodal',
+        'fine-tuning', 'fine tuning', 'finetuning',
+        'training data', 'training dataset',
+        'algorithmic bias', 'algorithm bias', 'bias',
+        'explainability', 'explainable',
+        'transparency', 'transparent',
+        'ethics', 'ethical',
+        'privacy', 'privacy-preserving',
+        'personalization', 'personalized', 'personalize',
+        'human-ai interaction', 'human ai interaction', 'human-ai', 'human ai',
+        'ai literacy', 'ai-literacy', 'literacy',
+        'co-creation', 'co creation', 'cocreation'
     }
     
     def __init__(self):
@@ -213,17 +222,29 @@ class WordFrequencyService:
         abstracts: List[str],
         category_words: Set[str]
     ) -> Dict[str, int]:
-        """Calcular frecuencia de aparición de palabras de la categoría."""
+        """
+        Calcular frecuencia de aparición de palabras de la categoría.
+        
+        Busca tanto palabras individuales como frases completas (bigramas/trigramas).
+        """
         frequencies = Counter()
         
         for abstract in abstracts:
-            tokens = self._tokenize(abstract)
-            for token in tokens:
-                token_lower = token.lower()
-                for cat_word in category_words:
-                    if cat_word.lower() in token_lower or token_lower in cat_word.lower():
-                        frequencies[cat_word] += 1
-                        break
+            abstract_lower = abstract.lower()
+            
+            # Buscar frases completas primero (bigramas/trigramas)
+            for cat_phrase in category_words:
+                if ' ' in cat_phrase or '-' in cat_phrase:  # Es una frase o compuesta
+                    # Buscar la frase completa en el abstract
+                    if cat_phrase.lower() in abstract_lower:
+                        frequencies[cat_phrase] += abstract_lower.count(cat_phrase.lower())
+                else:  # Es una palabra individual
+                    # Buscar la palabra completa (no como substring)
+                    # Usar regex para buscar palabra completa
+                    pattern = r'\b' + re.escape(cat_phrase.lower()) + r'\b'
+                    matches = re.findall(pattern, abstract_lower)
+                    if matches:
+                        frequencies[cat_phrase] += len(matches)
         
         return dict(frequencies)
     

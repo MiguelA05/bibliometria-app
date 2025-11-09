@@ -230,20 +230,33 @@ def analyze_similarity_with_llm(text1: str, text2: str, model: str = "llama3.2:3
     Returns:
         Diccionario con análisis de similitud
     """
-    # Prompt más estructurado y determinístico
+    # Prompt mejorado para obtener scores más variados y precisos
     system_prompt = """Eres un experto en análisis de similitud textual. 
-Tu tarea es analizar dos textos y determinar su similitud semántica y temática de manera consistente y objetiva.
+Tu tarea es analizar dos textos y determinar su similitud semántica y temática de manera precisa y objetiva.
 
-INSTRUCCIONES:
-1. Evalúa la similitud considerando: temas comunes, vocabulario compartido, estructura semántica
-2. Asigna un score entre 0.0 y 1.0 donde:
-   - 0.0-0.2: Textos completamente diferentes
-   - 0.2-0.4: Textos con algunos temas comunes pero diferentes enfoques
-   - 0.4-0.6: Textos similares con temas relacionados
-   - 0.6-0.8: Textos muy similares con temas y enfoques cercanos
-   - 0.8-1.0: Textos casi idénticos o muy relacionados
-3. Responde EXACTAMENTE en el formato: SCORE: X.XX - JUSTIFICACIÓN (máximo 2 frases)
-4. Sé consistente: textos similares deben recibir scores similares"""
+INSTRUCCIONES DETALLADAS:
+1. Evalúa la similitud considerando estos factores (cada uno contribuye al score):
+   - Temas principales compartidos (0-0.3 puntos)
+   - Vocabulario y terminología común (0-0.2 puntos)
+   - Estructura semántica y argumentativa (0-0.2 puntos)
+   - Conceptos específicos mencionados (0-0.15 puntos)
+   - Contexto y dominio de aplicación (0-0.15 puntos)
+
+2. Calcula el score sumando las contribuciones de cada factor. Usa valores PRECISOS con 2 decimales (ej: 0.47, 0.63, 0.82, 0.15).
+
+3. RANGOS DE REFERENCIA (usa estos como guía, pero calcula valores específicos):
+   - 0.00-0.25: Textos completamente diferentes en tema y contenido
+   - 0.25-0.45: Textos con algunos temas comunes pero enfoques muy diferentes
+   - 0.45-0.65: Textos similares con temas relacionados y vocabulario compartido
+   - 0.65-0.80: Textos muy similares con temas y enfoques cercanos
+   - 0.80-0.95: Textos casi idénticos en tema, vocabulario y estructura
+   - 0.95-1.00: Textos prácticamente idénticos
+
+4. IMPORTANTE: NO uses siempre 0.8 o 0.4. Calcula el score basándote en la evaluación real de los factores.
+   Usa valores intermedios como 0.52, 0.67, 0.73, 0.31, etc.
+
+5. Responde EXACTAMENTE en el formato: SCORE: X.XX - JUSTIFICACIÓN (máximo 2 frases)
+   Ejemplo: SCORE: 0.67 - Ambos textos tratan sobre IA en educación, comparten vocabulario técnico similar pero difieren en enfoque metodológico."""
     
     # Crear hash de los textos para usar como seed adicional (más determinístico)
     import hashlib
@@ -262,13 +275,14 @@ TEXTO 2:
 Evalúa la similitud semántica y temática. Responde EXACTAMENTE en el formato:
 SCORE: X.XX - JUSTIFICACIÓN"""
     
-    # Usar temperatura muy baja y seed basado en el contenido para consistencia
-    # El seed se basa en el hash de los textos, así que textos idénticos siempre dan el mismo resultado
+    # Usar temperatura ligeramente mayor para permitir más variación en los scores
+    # pero mantener seed para reproducibilidad con textos idénticos
+    # Temperatura 0.1 permite variación sutil pero mantiene consistencia
     response = generate_with_ollama(
         prompt=user_prompt,
         model=model,
         system_prompt=system_prompt,
-        temperature=0.0,  # Temperatura 0 para máxima consistencia (determinístico)
+        temperature=0.1,  # Ligeramente mayor para evitar anclaje en valores fijos
         max_tokens=200,
         seed=text_seed  # Seed basado en el contenido de los textos para reproducibilidad
     )
@@ -280,22 +294,22 @@ SCORE: X.XX - JUSTIFICACIÓN"""
             "raw_response": None
         }
     
-    # Parsear respuesta
+    # Parsear respuesta con múltiples estrategias
     score = 0.0
     justification = response.strip()
     
-    # Intentar extraer el score y justificación
     import re
     
-    # Buscar patrón "SCORE: X.XX - JUSTIFICACIÓN"
+    # Estrategia 1: Buscar patrón "SCORE: X.XX - JUSTIFICACIÓN" (más común)
     score_pattern = re.search(r'SCORE:\s*([0-9]*\.?[0-9]+)', response, re.IGNORECASE)
     if score_pattern:
         try:
-            score = float(score_pattern.group(1))
+            score_raw = score_pattern.group(1)
+            score = float(score_raw)
+            # NO redondear aquí - mantener precisión del modelo
             score = max(0.0, min(1.0, score))  # Asegurar rango [0, 1]
             
             # Extraer justificación (todo después del guion o después del score)
-            # Buscar el guion después del score
             dash_match = re.search(r'SCORE:\s*[0-9]*\.?[0-9]+\s*-\s*(.+)', response, re.IGNORECASE | re.DOTALL)
             if dash_match:
                 justification = dash_match.group(1).strip()
@@ -306,13 +320,14 @@ SCORE: X.XX - JUSTIFICACIÓN"""
                     justification = response[score_end:].strip()
                     # Limpiar posibles prefijos como "-" o ":"
                     justification = re.sub(r'^[-:\s]+', '', justification)
-        except ValueError:
+        except (ValueError, AttributeError):
             # Si falla el parsing, intentar método alternativo
             pass
     
-    # Método alternativo: buscar número decimal al inicio
+    # Estrategia 2: Buscar número decimal al inicio o en cualquier parte (0.XX o 1.0)
     if score == 0.0:
-        match = re.search(r'\b([01]\.\d+|\d+\.\d+)\b', response)
+        # Buscar números entre 0.0 y 1.0 con 1-3 decimales
+        match = re.search(r'\b(0?\.\d{1,3}|1\.0{1,3}|0\.\d+|1\.0)\b', response)
         if match:
             try:
                 score = float(match.group(1))
@@ -321,10 +336,23 @@ SCORE: X.XX - JUSTIFICACIÓN"""
                 num_end = match.end()
                 if num_end < len(response):
                     remaining = response[num_end:].strip()
-                    # Buscar guion o dos puntos
+                    # Buscar guion, dos puntos o texto después
                     if re.match(r'^[-:\s]+', remaining):
                         justification = re.sub(r'^[-:\s]+', '', remaining).strip()
-            except ValueError:
+                    elif len(remaining) > 10:  # Si hay texto significativo después
+                        justification = remaining
+            except (ValueError, AttributeError):
+                pass
+    
+    # Estrategia 3: Buscar porcentaje (ej: "80%" = 0.8)
+    if score == 0.0:
+        percent_match = re.search(r'(\d{1,3})\s*%', response)
+        if percent_match:
+            try:
+                percent = int(percent_match.group(1))
+                score = percent / 100.0
+                score = max(0.0, min(1.0, score))
+            except (ValueError, AttributeError):
                 pass
     
     return {

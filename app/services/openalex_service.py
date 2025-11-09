@@ -57,9 +57,11 @@ class OpenAlexService:
             self.logger.info(f"Searching OpenAlex: {query}")
             
             # Construir parámetros de búsqueda
+            # Solicitar más resultados para compensar los que no tienen abstract
+            per_page = min(max_articles * 2, settings.openalex_max_per_page)
             params = {
                 'search': query,
-                'per_page': min(max_articles, settings.openalex_max_per_page),
+                'per_page': per_page,
             }
             
             # Agregar email solo si está disponible y es válido
@@ -86,16 +88,79 @@ class OpenAlexService:
             
             self.logger.info(f"Found {len(works)} results in OpenAlex", query=query)
             
-            # Procesar cada trabajo
-            for i, work in enumerate(works[:max_articles]):
+            # Procesar trabajos hasta obtener max_articles con abstracts válidos
+            # Buscar más trabajos de los necesarios para compensar los que no tienen abstract
+            page = 0
+            all_works_processed = works[:]
+            max_attempts = max_articles * 3  # Buscar hasta 3x para compensar sin abstract
+            i = 0
+            
+            while len(articles) < max_articles and i < max_attempts:
+                # Si ya procesamos todos los trabajos de la primera página y necesitamos más
+                if i >= len(all_works_processed) and len(articles) < max_articles:
+                    # Intentar obtener más resultados con paginación
+                    page += 1
+                    try:
+                        params = {
+                            'search': query,
+                            'per_page': min(self.max_per_page, max_articles * 2),
+                            'page': page,
+                            'sort': 'relevance_score:desc'
+                        }
+                        
+                        if filters and 'year' in filters:
+                            params['filter'] = f"publication_year:{filters['year']}"
+                        
+                        response = self.session.get(
+                            f"{self.base_url}/works",
+                            params=params,
+                            headers=self.headers,
+                            timeout=self.timeout
+                        )
+                        response.raise_for_status()
+                        data = response.json()
+                        new_works = data.get('results', [])
+                        
+                        if not new_works:
+                            break  # No hay más resultados
+                        
+                        all_works_processed.extend(new_works)
+                        self.logger.debug(f"Fetched additional {len(new_works)} works from page {page}")
+                    except Exception as e:
+                        self.logger.warning(f"Could not fetch additional OpenAlex results: {e}")
+                        break
+                
+                if i >= len(all_works_processed):
+                    break
+                
                 try:
+                    work = all_works_processed[i]
                     article = self._process_work(work)
                     if article:
-                        articles.append(article)
-                        self.logger.debug(f"Processed article {len(articles)}: {article.title[:50]}...")
+                        # Verificar que el abstract sea válido
+                        abstract = article.abstract or ""
+                        abstract_lower = abstract.lower().strip()
+                        
+                        if (abstract and 
+                            abstract_lower != '' and 
+                            abstract_lower != 'none' and 
+                            abstract_lower != 'nan' and
+                            'abstract not available' not in abstract_lower and
+                            len(abstract) > 20):  # Mínimo 20 caracteres
+                            articles.append(article)
+                            self.logger.debug(f"Processed article {len(articles)}: {article.title[:50]}...")
+                        else:
+                            self.logger.debug(f"Skipping article without valid abstract: {article.title[:50]}...")
+                    i += 1
                 except Exception as e:
                     self.logger.error(f"Error processing article {i+1}: {e}")
+                    i += 1
                     continue
+            
+            if len(articles) < max_articles:
+                self.logger.warning(
+                    f"Only found {len(articles)} articles with valid abstracts out of {max_articles} requested"
+                )
             
             # Log de éxito
             response_time = time.time() - start_time
@@ -160,8 +225,7 @@ class OpenAlexService:
                 authors = []
             if not affiliations:
                 affiliations = []
-            if not abstract:
-                abstract = "Abstract not available"
+            # NO establecer "Abstract not available" aquí - se validará después
             if not article_url:
                 article_url = "URL not available"
             
@@ -184,12 +248,15 @@ class OpenAlexService:
             geographic_data = self.geographic_service.extract_geographic_data(work)
             
             # Crear objeto ArticleMetadata
+            # Asegurar que abstract sea siempre un string (no None)
+            abstract_str = abstract if abstract else ""
+            
             article = ArticleMetadata(
                 # Campos básicos
                 title=title,
                 authors=authors,
                 affiliations=affiliations,
-                abstract=abstract,
+                abstract=abstract_str,
                 publication_date=publication_date,
                 article_url=article_url,
                 
@@ -263,7 +330,9 @@ class OpenAlexService:
             if work.get(field) and work[field].strip():
                 return work[field].strip()
         
-        return "Abstract not available"
+        # Retornar string vacío en lugar de "Abstract not available"
+        # El servicio validará y rechazará artículos sin abstract válido
+        return ""
     
     def _extract_authors_and_affiliations(self, work: Dict[str, Any]) -> Tuple[List[str], List[str]]:
         """Extraer autores y afiliaciones."""
