@@ -256,28 +256,48 @@ Proporciona un score de similitud entre 0.0 y 1.0 y una breve justificación."""
     
     # Parsear respuesta
     score = 0.0
-    justification = response
+    justification = response.strip()
     
-    # Intentar extraer el score
-    if "SCORE:" in response.upper():
-        parts = response.split(":", 1)
-        if len(parts) > 1:
-            try:
-                score_str = parts[1].split("-")[0].strip()
-                score = float(score_str)
-                score = max(0.0, min(1.0, score))  # Asegurar rango [0, 1]
-                if len(parts) > 1 and "-" in parts[1]:
-                    justification = parts[1].split("-", 1)[1].strip()
-            except ValueError:
-                pass
-    else:
-        # Intentar extraer número del inicio
-        import re
-        match = re.search(r'\b0?\.\d+\b|\b[01]\.\d+\b', response)
+    # Intentar extraer el score y justificación
+    import re
+    
+    # Buscar patrón "SCORE: X.XX - JUSTIFICACIÓN"
+    score_pattern = re.search(r'SCORE:\s*([0-9]*\.?[0-9]+)', response, re.IGNORECASE)
+    if score_pattern:
+        try:
+            score = float(score_pattern.group(1))
+            score = max(0.0, min(1.0, score))  # Asegurar rango [0, 1]
+            
+            # Extraer justificación (todo después del guion o después del score)
+            # Buscar el guion después del score
+            dash_match = re.search(r'SCORE:\s*[0-9]*\.?[0-9]+\s*-\s*(.+)', response, re.IGNORECASE | re.DOTALL)
+            if dash_match:
+                justification = dash_match.group(1).strip()
+            else:
+                # Si no hay guion, tomar todo después del score
+                score_end = score_pattern.end()
+                if score_end < len(response):
+                    justification = response[score_end:].strip()
+                    # Limpiar posibles prefijos como "-" o ":"
+                    justification = re.sub(r'^[-:\s]+', '', justification)
+        except ValueError:
+            # Si falla el parsing, intentar método alternativo
+            pass
+    
+    # Método alternativo: buscar número decimal al inicio
+    if score == 0.0:
+        match = re.search(r'\b([01]\.\d+|\d+\.\d+)\b', response)
         if match:
             try:
-                score = float(match.group())
+                score = float(match.group(1))
                 score = max(0.0, min(1.0, score))
+                # Intentar extraer justificación después del número
+                num_end = match.end()
+                if num_end < len(response):
+                    remaining = response[num_end:].strip()
+                    # Buscar guion o dos puntos
+                    if re.match(r'^[-:\s]+', remaining):
+                        justification = re.sub(r'^[-:\s]+', '', remaining).strip()
             except ValueError:
                 pass
     

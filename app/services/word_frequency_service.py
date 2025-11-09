@@ -1,13 +1,14 @@
 """
 Servicio para análisis de frecuencia de palabras en abstracts.
-Requerimiento 3: Calcular frecuencia de aparición y generar palabras asociadas.
+
+Requerimiento 3: Calcular frecuencia de aparición de palabras y generar
+palabras asociadas basadas en proximidad contextual.
 """
 
 import re
-from typing import List, Dict, Any, Tuple, Optional, Set
+from typing import List, Dict, Tuple, Optional, Set
 from collections import Counter
 from dataclasses import dataclass
-import pandas as pd
 
 try:
     import nltk
@@ -19,7 +20,6 @@ except ImportError:
 
 from app.utils.logger import get_logger
 from app.utils.csv_reader import read_unified_csv, resolve_column_index, normalize_header
-from app.config import settings
 
 
 @dataclass
@@ -33,7 +33,6 @@ class WordFrequencyResult:
     total_words_analyzed: int
 
 
-# Stopwords por defecto
 DEFAULT_STOPWORDS = {
     'the', 'and', 'of', 'in', 'to', 'a', 'is', 'for', 'on', 'that', 'with', 'as',
     'by', 'an', 'are', 'this', 'from', 'be', 'at', 'or', 'we', 'it', 'which',
@@ -43,9 +42,13 @@ DEFAULT_STOPWORDS = {
 
 
 class WordFrequencyService:
-    """Servicio para análisis de frecuencia de palabras en abstracts."""
+    """
+    Servicio para análisis de frecuencia de palabras en abstracts.
     
-    # Palabras asociadas a "Concepts of Generative AI in Education"
+    Calcula frecuencias de palabras, identifica palabras asociadas por proximidad
+    contextual y genera estadísticas de uso de términos clave.
+    """
+    
     GENERATIVE_AI_EDUCATION_WORDS = {
         'generative', 'artificial', 'intelligence', 'ai',
         'education', 'learning', 'teaching', 'pedagogy', 'pedagogical',
@@ -58,15 +61,15 @@ class WordFrequencyService:
     }
     
     def __init__(self):
+        """Inicializar el servicio de frecuencia de palabras."""
         self.logger = get_logger("word_frequency")
-        
-        # Inicializar NLTK si está disponible
         self.stop_words = DEFAULT_STOPWORDS.copy()
+        
         if NLTK_AVAILABLE:
             try:
                 nltk_stopwords = set(stopwords.words('english'))
                 self.stop_words.update(nltk_stopwords)
-            except:
+            except Exception:
                 pass
     
     def analyze_word_frequency(
@@ -74,56 +77,48 @@ class WordFrequencyService:
         csv_path: Optional[str] = None,
         category: str = "Concepts of Generative AI in Education",
         max_associated_words: int = 15,
-        text_field: str = "abstract",
-        keywords_field: str = "keywords"
+        text_field: str = "abstract"
     ) -> WordFrequencyResult:
         """
         Analizar frecuencia de palabras en abstracts.
         
+        Calcula la frecuencia de aparición de palabras de una categoría específica
+        y genera palabras asociadas basadas en proximidad contextual.
+        
         Args:
             csv_path: Ruta al CSV unificado (opcional, usa el más reciente si no se proporciona)
-            category: Categoría de análisis
-            max_associated_words: Máximo de palabras asociadas a generar
+            category: Categoría de análisis (default: "Concepts of Generative AI in Education")
+            max_associated_words: Máximo de palabras asociadas a generar (default: 15)
             text_field: Campo de texto a analizar (default: "abstract")
-            keywords_field: Campo de keywords (default: "keywords")
         
         Returns:
-            WordFrequencyResult con resultados del análisis
+            WordFrequencyResult con frecuencias, palabras asociadas y estadísticas
+        
+        Raises:
+            ValueError: Si el CSV está vacío o no contiene datos suficientes
         """
-        # Leer CSV
         rows = read_unified_csv(csv_path)
         if not rows or len(rows) < 2:
             raise ValueError("El CSV unificado está vacío o no contiene datos suficientes.")
         
         header = normalize_header(rows[0])
-        
-        # Resolver índices de columnas
         text_idx, _ = resolve_column_index(header, text_field)
-        keywords_idx, _ = resolve_column_index(header, keywords_field)
         
-        # Obtener palabras de la categoría
         category_words = self._get_category_words(category)
         
-        # Extraer todos los abstracts y keywords
         abstracts = []
-        keywords_list = []
         for row in rows[1:]:
             if text_idx < len(row):
                 abstracts.append(str(row[text_idx]).strip())
-            if keywords_idx < len(row):
-                keywords_list.append(str(row[keywords_idx]).strip())
         
-        # Calcular frecuencias de palabras de la categoría
         category_frequencies = self._calculate_category_frequencies(
             abstracts, category_words
         )
         
-        # Generar palabras asociadas
         associated_words = self._generate_associated_words(
             abstracts, category_words, max_associated_words
         )
         
-        # Calcular precisión de palabras asociadas
         associated_words_with_precision = self._calculate_precision(
             associated_words, abstracts, category_words
         )
@@ -193,23 +188,21 @@ class WordFrequencyService:
         return counter.most_common(top_n)
     
     def _get_category_words(self, category: str) -> Set[str]:
-        """Obtener palabras asociadas a la categoría."""
+        """Obtener conjunto de palabras asociadas a la categoría especificada."""
         if "Generative AI in Education" in category or "Generative AI" in category:
             return self.GENERATIVE_AI_EDUCATION_WORDS
-        # Puedes agregar más categorías aquí
         return set()
     
     def _tokenize(self, text: str) -> List[str]:
-        """Tokenizar texto."""
+        """Tokenizar texto removiendo stopwords y caracteres no alfanuméricos."""
         if NLTK_AVAILABLE:
             try:
                 tokens = word_tokenize(text.lower())
                 tokens = [t for t in tokens if t.isalnum() and t not in self.stop_words and len(t) > 2]
                 return tokens
-            except:
+            except Exception:
                 pass
         
-        # Fallback simple
         text_lower = text.lower()
         text_clean = re.sub(r'[^\w\s]', '', text_lower)
         tokens = text_clean.split()
@@ -240,13 +233,17 @@ class WordFrequencyService:
         category_words: Set[str],
         max_words: int = 15
     ) -> List[Tuple[str, int]]:
-        """Generar listado de palabras asociadas desde abstracts."""
+        """
+        Generar palabras asociadas basadas en proximidad contextual.
+        
+        Identifica palabras que aparecen cerca de palabras de categoría
+        (ventana de ±3 palabras) y las ordena por frecuencia.
+        """
         word_scores = Counter()
         
         for abstract in abstracts:
             tokens = self._tokenize(abstract)
             
-            # Encontrar posiciones de palabras de categoría
             category_positions = []
             for i, token in enumerate(tokens):
                 token_lower = token.lower()
@@ -255,7 +252,6 @@ class WordFrequencyService:
                         category_positions.append(i)
                         break
             
-            # Contar palabras cercanas a palabras de categoría (ventana de ±3 palabras)
             window = 3
             for pos in category_positions:
                 start = max(0, pos - window)
@@ -277,8 +273,8 @@ class WordFrequencyService:
         """
         Calcular precisión de palabras asociadas.
         
-        La precisión se calcula como:
-        - Frecuencia de aparición junto con palabras de categoría / Frecuencia total
+        La precisión es la proporción de apariciones de una palabra que ocurren
+        cerca de palabras de categoría (ventana de ±5 palabras) sobre su frecuencia total.
         """
         results = []
         
@@ -293,7 +289,6 @@ class WordFrequencyService:
                 if word.lower() in tokens_lower:
                     total_freq += tokens_lower.count(word.lower())
                     
-                    # Verificar si aparece cerca de palabras de categoría
                     word_positions = [i for i, t in enumerate(tokens_lower) if t == word.lower()]
                     category_positions = []
                     for i, token in enumerate(tokens_lower):
@@ -302,7 +297,6 @@ class WordFrequencyService:
                                 category_positions.append(i)
                                 break
                     
-                    # Verificar proximidad
                     window = 5
                     for wp in word_positions:
                         for cp in category_positions:

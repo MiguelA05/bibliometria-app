@@ -59,7 +59,25 @@ python -m nltk.downloader punkt stopwords
 
 **Nota:** `sentence-transformers` es opcional pero recomendado para algoritmos de IA.
 
-#### 4. Configurar entorno
+#### 4. Instalar Ollama (Opcional - para algoritmo LLM-based)
+
+Para usar el algoritmo de similitud basado en LLM (Requerimiento 2), necesitas instalar Ollama:
+
+```bash
+# Método automático (recomendado)
+bash scripts/install_ollama.sh
+
+# O manualmente
+curl -fsSL https://ollama.com/install.sh | sh
+ollama serve  # En otra terminal
+ollama pull llama3.2:3b  # Descargar modelo
+```
+
+**Nota:** Si Ollama no está instalado, el algoritmo LLM-based usará un modo simulado como fallback.
+
+Ver documentación completa: [docs/OLLAMA_SETUP.md](docs/OLLAMA_SETUP.md)
+
+#### 5. Configurar entorno
 ```bash
 # Crear archivo de configuración desde ejemplo
 cp env.example .env
@@ -67,7 +85,7 @@ cp env.example .env
 # El archivo .env se crea automáticamente si no existe al ejecutar start.py
 ```
 
-#### 5. Verificar instalación
+#### 6. Verificar instalación
 ```bash
 # El script start.py verifica automáticamente las dependencias
 python start.py

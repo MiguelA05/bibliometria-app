@@ -1,17 +1,17 @@
 """
-Servicio de similitud textual con 4 algoritmos clásicos y 2 algoritmos basados en IA.
-Incluye preprocesamiento normalizado y análisis detallado paso a paso.
+Servicio de similitud textual con 6 algoritmos:
+- 4 algoritmos clásicos: Levenshtein, Damerau-Levenshtein, Jaccard, TF-IDF Cosine
+- 2 algoritmos basados en IA: Sentence-BERT, LLM-based (Ollama)
+
+Incluye preprocesamiento normalizado y análisis detallado de resultados.
 """
 
 import re
 import numpy as np
-import pandas as pd
 from typing import List, Dict, Any, Tuple, Optional
-from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
 import unicodedata
-import json
 
 try:
     from sklearn.feature_extraction.text import TfidfVectorizer
@@ -38,23 +38,20 @@ try:
     from app.utils.ollama_helper import (
         ensure_ollama_ready,
         analyze_similarity_with_llm,
-        check_model_available,
         OLLAMA_AVAILABLE
     )
 except ImportError:
     OLLAMA_AVAILABLE = False
     ensure_ollama_ready = None
     analyze_similarity_with_llm = None
-    check_model_available = None
     print("[WARNING] Ollama helper no disponible. Algoritmo LLM-based usará modo simulado.")
 
 from app.utils.logger import get_logger
-from app.config import settings
 
 
 @dataclass
 class SimilarityResult:
-    """Resultado de un algoritmo de similitud."""
+    """Resultado de un algoritmo de similitud textual."""
     algorithm_name: str
     similarity_score: float
     explanation: str
@@ -73,21 +70,35 @@ class TextPreprocessingResult:
 
 
 class TextSimilarityService:
-    """Servicio para análisis de similitud textual con múltiples algoritmos."""
+    """
+    Servicio para análisis de similitud textual con múltiples algoritmos.
+    
+    Implementa 6 algoritmos de similitud:
+    - Levenshtein: Distancia de edición estándar
+    - Damerau-Levenshtein: Distancia de edición con transposiciones
+    - Jaccard: Similitud sobre n-grams (shingles)
+    - TF-IDF Cosine: Vectorización estadística con similitud coseno
+    - Sentence-BERT: Embeddings semánticos con transformers
+    - LLM-based: Análisis semántico profundo con modelos LLM locales (Ollama)
+    """
     
     def __init__(self, ollama_model: str = "llama3.2:3b"):
+        """
+        Inicializar el servicio de similitud textual.
+        
+        Args:
+            ollama_model: Nombre del modelo de Ollama a usar (default: "llama3.2:3b")
+        """
         self.logger = get_logger("text_similarity")
         self.ollama_model = ollama_model
         
-        # Inicializar stemmer
         try:
             self.stemmer = PorterStemmer()
             self.stop_words = set(stopwords.words('english'))
-        except:
+        except Exception:
             self.stemmer = None
             self.stop_words = set()
         
-        # Cargar modelo de embeddings si está disponible
         self.sbert_model = None
         if SENTENCE_BERT_AVAILABLE:
             try:
@@ -97,7 +108,6 @@ class TextSimilarityService:
                 self.logger.warning(f"Could not load Sentence-BERT model: {e}")
                 self.sbert_model = None
         
-        # Verificar Ollama si está disponible
         self.ollama_available = False
         if OLLAMA_AVAILABLE:
             try:
@@ -105,7 +115,7 @@ class TextSimilarityService:
                     self.ollama_available = True
                     self.logger.info(f"Ollama disponible. Modelo configurado: {ollama_model}")
                 else:
-                    self.logger.warning("Ollama no está disponible. LLM-based similarity usará modo simulado.")
+                    self.logger.warning("Ollama no está disponible. LLM-based similarity no funcionará.")
             except Exception as e:
                 self.logger.warning(f"Error verificando Ollama: {e}")
     
@@ -114,11 +124,15 @@ class TextSimilarityService:
         Preprocesar texto según el método especificado.
         
         Args:
-            text: Texto original
-            method: 'standard', 'char-level', 'token-level', 'minimal'
+            text: Texto original a procesar
+            method: Método de preprocesamiento:
+                - 'standard': Tokenización completa con stemming y stopwords
+                - 'char-level': Solo normalización básica (para algoritmos de caracteres)
+                - 'token-level': Tokenización sin stemming (para TF-IDF)
+                - 'minimal': Mínimo procesamiento (solo minúsculas y split)
             
         Returns:
-            TextPreprocessingResult con texto procesado y estadísticas
+            TextPreprocessingResult con texto procesado, tokens y estadísticas
         """
         if not text or not isinstance(text, str):
             return TextPreprocessingResult(
@@ -130,38 +144,23 @@ class TextSimilarityService:
             )
         
         original = text
-        
-        # Paso 1: Normalización Unicode
         normalized = unicodedata.normalize('NFKC', text)
-        
-        # Paso 2: Minúsculas
         text_lower = normalized.lower()
-        
-        # Paso 3: Detectar idioma (simple)
         detected_lang = self._detect_language(text_lower)
         
-        # Paso 4: Procesamiento según método
         if method == 'char-level':
-            # Para Levenshtein: solo normalización básica
             processed = self._clean_for_char_similarity(text_lower)
             tokens = list(processed)
-            
         elif method == 'minimal':
-            # Mínimo procesamiento
             processed = text_lower
             tokens = processed.split()
-            
         elif method == 'token-level':
-            # Tokenización completa
             tokens = self._tokenize(text_lower)
             processed = ' '.join(tokens)
-            
         else:  # standard
-            # Procesamiento estándar completo
             tokens = self._tokenize_advanced(text_lower)
             processed = ' '.join(tokens)
         
-        # Estadísticas
         stats = {
             'original_length': len(original),
             'processed_length': len(processed),
@@ -179,91 +178,78 @@ class TextSimilarityService:
         )
     
     def _clean_for_char_similarity(self, text: str) -> str:
-        """Limpiar texto para similitud a nivel de caracteres."""
-        # Remover espacios extra pero mantener estructura
+        """Normalizar espacios para similitud a nivel de caracteres."""
         return re.sub(r'\s+', ' ', text.strip())
     
     def _tokenize(self, text: str) -> List[str]:
-        """Tokenización básica."""
-        # Remover puntuación y tokenizar
+        """Tokenización básica: remover puntuación y dividir en palabras."""
         text_no_punct = re.sub(r'[^\w\s]', '', text)
         return text_no_punct.split()
     
     def _tokenize_advanced(self, text: str) -> List[str]:
-        """Tokenización avanzada con stemmer y stopwords."""
+        """Tokenización avanzada: remover stopwords y aplicar stemming."""
         if not self.stemmer:
             return self._tokenize(text)
         
         tokens = self._tokenize(text)
-        
-        # Remover stopwords
         tokens = [t for t in tokens if t not in self.stop_words and len(t) > 2]
-        
-        # Stemming
         tokens = [self.stemmer.stem(t) for t in tokens]
-        
         return tokens
     
     def _detect_language(self, text: str) -> str:
-        """Detección simple de idioma."""
-        # Contar palabras comunes en inglés
+        """Detección simple de idioma basada en palabras comunes."""
         english_words = {'the', 'and', 'is', 'are', 'in', 'on', 'to', 'of', 'a', 'an'}
-        
         words = text.split()
         english_count = sum(1 for word in words if word.lower() in english_words)
         
-        if english_count / len(words) > 0.1 if words else False:
+        if words and english_count / len(words) > 0.1:
             return 'english'
         return 'unknown'
-    
-    # ==================== ALGORITMOS CLÁSICOS ====================
     
     def levenshtein_similarity(self, text1: str, text2: str, 
                                include_matrix: bool = False) -> SimilarityResult:
         """
         Algoritmo 1: Levenshtein (Distancia de Edición).
         
+        Calcula el número mínimo de operaciones (inserción, eliminación, sustitución)
+        necesarias para convertir un texto en otro. Usa programación dinámica.
+        
+        Args:
+            text1: Primer texto a comparar
+            text2: Segundo texto a comparar
+            include_matrix: Si True, incluye la matriz DP y backtrace en los detalles
+        
         Returns:
-            SimilarityResult con distancia, matriz DP opcional y backtrace
+            SimilarityResult con score de similitud (0-1), distancia y explicación detallada
         """
         start_time = datetime.now()
         
-        # Preprocesar para char-level
         prep1 = self.preprocess_text(text1, 'char-level')
         prep2 = self.preprocess_text(text2, 'char-level')
         
         s1, s2 = prep1.processed_text, prep2.processed_text
         n, m = len(s1), len(s2)
         
-        # Matriz DP: dp[i][j] = distancia para s1[0:i] y s2[0:j]
         dp = np.zeros((n + 1, m + 1), dtype=int)
         
-        # Inicializar primera fila y columna
         for i in range(n + 1):
             dp[i][0] = i
         for j in range(m + 1):
             dp[0][j] = j
         
-        # Llenar matriz DP
         for i in range(1, n + 1):
             for j in range(1, m + 1):
-                if s1[i-1] == s2[j-1]:
-                    cost = 0
-                else:
-                    cost = 1
-                
+                cost = 0 if s1[i-1] == s2[j-1] else 1
                 dp[i][j] = min(
-                    dp[i-1][j] + 1,      # inserción
-                    dp[i][j-1] + 1,      # eliminación
-                    dp[i-1][j-1] + cost   # sustitución
+                    dp[i-1][j] + 1,
+                    dp[i][j-1] + 1,
+                    dp[i-1][j-1] + cost
                 )
         
-        # Distancia final
         distance = dp[n][m]
         max_len = max(n, m)
         similarity = 1 - (distance / max_len) if max_len > 0 else 0
         
-        # Backtrace (opcional)
         backtrace = []
         if include_matrix:
             i, j = n, m
@@ -313,8 +299,15 @@ class TextSimilarityService:
         """
         Algoritmo 2: Damerau-Levenshtein (con transposición).
         
+        Similar a Levenshtein pero incluye transposición de caracteres adyacentes
+        como operación adicional. Ejemplo: 'ab' → 'ba' cuenta como 1 operación vs 2.
+        
+        Args:
+            text1: Primer texto a comparar
+            text2: Segundo texto a comparar
+        
         Returns:
-            SimilarityResult con distancia, transposiciones detectadas
+            SimilarityResult con score de similitud (0-1), distancia y transposiciones detectadas
         """
         start_time = datetime.now()
         
@@ -326,34 +319,34 @@ class TextSimilarityService:
         
         dp = np.zeros((n + 1, m + 1), dtype=int)
         
-        # Inicializar
         for i in range(n + 1):
             dp[i][0] = i
         for j in range(m + 1):
             dp[0][j] = j
         
-        # Llenar con Damerau
         transpositions = []
+        transpositions_used = set()
+        
         for i in range(1, n + 1):
             for j in range(1, m + 1):
-                if s1[i-1] == s2[j-1]:
-                    cost = 0
-                else:
-                    cost = 1
+                cost = 0 if s1[i-1] == s2[j-1] else 1
                 
                 dp[i][j] = min(
-                    dp[i-1][j] + 1,      # inserción
-                    dp[i][j-1] + 1,      # eliminación
-                    dp[i-1][j-1] + cost   # sustitución
+                    dp[i-1][j] + 1,
+                    dp[i][j-1] + 1,
+                    dp[i-1][j-1] + cost
                 )
                 
-                # Transposición (Damerau)
                 if (i > 1 and j > 1 and 
-                    s1[i-1] == s2[j-2] and s1[i-2] == s2[j-1]):
-                    dp[i][j] = min(dp[i][j], dp[i-2][j-2] + 1)
-                    
-                    if not transpositions or transpositions[-1] != (i-2, j-2):
-                        transpositions.append((i-2, j-2, s1[i-2:i], s2[j-2:j]))
+                    s1[i-1] == s2[j-2] and s1[i-2] == s2[j-1] and
+                    s1[i-1] != s1[i-2]):
+                    transposition_cost = dp[i-2][j-2] + 1
+                    if transposition_cost < dp[i][j]:
+                        dp[i][j] = transposition_cost
+                        trans_pos = (i-2, j-2)
+                        if trans_pos not in transpositions_used:
+                            transpositions_used.add(trans_pos)
+                            transpositions.append((i-2, j-2, s1[i-2:i], s2[j-2:j]))
         
         distance = dp[n][m]
         max_len = max(n, m)
@@ -390,19 +383,22 @@ class TextSimilarityService:
         """
         Algoritmo 3: Jaccard sobre Shingles (n-grams).
         
+        Mide la similitud entre dos textos usando la intersección sobre la unión
+        de n-grams (shingles). Jaccard = |A ∩ B| / |A ∪ B|
+        
         Args:
-            text1, text2: Textos a comparar
-            n: Longitud de los n-grams (shingles)
+            text1: Primer texto a comparar
+            text2: Segundo texto a comparar
+            n: Longitud de los n-grams (shingles). Default: 3 (trigramas)
             
         Returns:
-            SimilarityResult con shingles comunes y proporción
+            SimilarityResult con score de similitud (0-1) y shingles comunes
         """
         start_time = datetime.now()
         
         prep1 = self.preprocess_text(text1, 'token-level')
         prep2 = self.preprocess_text(text2, 'token-level')
         
-        # Generar n-grams
         def generate_ngrams(tokens, n):
             """Generar n-grams de tokens."""
             ngrams = []
@@ -414,10 +410,8 @@ class TextSimilarityService:
         shingles1 = generate_ngrams(prep1.tokens, n)
         shingles2 = generate_ngrams(prep2.tokens, n)
         
-        # Calcular Jaccard
         intersection = shingles1 & shingles2
         union = shingles1 | shingles2
-        
         similarity = len(intersection) / len(union) if union else 0
         
         elapsed = (datetime.now() - start_time).total_seconds()
@@ -431,7 +425,6 @@ class TextSimilarityService:
         - Jaccard = |intersection| / |union| = {len(intersection)}/{len(union)} = {similarity:.3f}
         """
         
-        # Ejemplos de shingles comunes
         common_examples = list(intersection)[:10]
         
         details = {
@@ -457,43 +450,64 @@ class TextSimilarityService:
         """
         Algoritmo 4: TF-IDF Cosine Similarity.
         
+        Usa Term Frequency-Inverse Document Frequency para vectorizar textos y calcula
+        similitud del coseno entre los vectores. Captura importancia de términos.
+        
+        Args:
+            text1: Primer texto a comparar
+            text2: Segundo texto a comparar
+        
         Returns:
-            SimilarityResult con top términos y contribuciones
+            SimilarityResult con score de similitud (0-1) y términos con mayor contribución
         """
         start_time = datetime.now()
         
-        prep1 = self.preprocess_text(text1, 'standard')
-        prep2 = self.preprocess_text(text2, 'standard')
+        prep1_tfidf = self.preprocess_text(text1, 'token-level')
+        prep2_tfidf = self.preprocess_text(text2, 'token-level')
         
-        # Validar que hay texto suficiente para vectorizar
-        corpus = [prep1.processed_text, prep2.processed_text]
-        if not corpus[0].strip() or not corpus[1].strip():
+        text1_clean = prep1_tfidf.processed_text.strip() if prep1_tfidf.processed_text else ""
+        text2_clean = prep2_tfidf.processed_text.strip() if prep2_tfidf.processed_text else ""
+        
+        text1_clean = re.sub(r'[^\w\s]', ' ', text1_clean)
+        text2_clean = re.sub(r'[^\w\s]', ' ', text2_clean)
+        text1_clean = re.sub(r'\s+', ' ', text1_clean).strip()
+        text2_clean = re.sub(r'\s+', ' ', text2_clean).strip()
+        
+        if not text1_clean or not text2_clean:
             similarity = 0
             top_terms = []
             feature_names = []
             term_contributions = []
         else:
-            # Vectorizar con TF-IDF
-            vectorizer = TfidfVectorizer(max_features=1000, ngram_range=(1, 3), min_df=1)
+            corpus = [text1_clean, text2_clean]
             
             try:
+                vectorizer = TfidfVectorizer(
+                    max_features=500,
+                    ngram_range=(1, 1),
+                    min_df=1,
+                    token_pattern=r'(?u)\b\w+\b',
+                    lowercase=True,
+                    analyzer='word'
+                )
+                
                 tfidf_matrix = vectorizer.fit_transform(corpus)
-            
-                # Calcular similitud coseno
+                
+                if tfidf_matrix.shape[0] < 2 or tfidf_matrix.shape[1] == 0:
+                    raise ValueError("Matriz TF-IDF insuficiente")
+                
                 similarity = cosine_similarity([tfidf_matrix[0]], [tfidf_matrix[1]])[0][0]
                 
-                # Extraer términos importantes
                 feature_names = vectorizer.get_feature_names_out()
                 tfidf1 = tfidf_matrix[0].toarray()[0]
                 tfidf2 = tfidf_matrix[1].toarray()[0]
                 
-                # Producto punto por término
                 term_contributions = []
                 for i, term in enumerate(feature_names):
                     contrib = tfidf1[i] * tfidf2[i]
-                    if contrib > 0.01:  # Umbral
+                    if contrib > 0.01:
                         term_contributions.append({
-                            'term': term,
+                            'term': str(term),
                             'contribution': float(contrib),
                             'tfidf1': float(tfidf1[i]),
                             'tfidf2': float(tfidf2[i])
@@ -501,13 +515,26 @@ class TextSimilarityService:
                 
                 term_contributions.sort(key=lambda x: x['contribution'], reverse=True)
                 top_terms = term_contributions[:20]
-                
+            
             except Exception as e:
-                similarity = 0
-                top_terms = []
-                feature_names = []
-                term_contributions = []
-                self.logger.warning(f"Error in TF-IDF (texts may be too short): {e}")
+                try:
+                    words1 = set(text1_clean.split())
+                    words2 = set(text2_clean.split())
+                    common_words = words1 & words2
+                    all_words = words1 | words2
+                    
+                    similarity = len(common_words) / len(all_words) if all_words else 0
+                    top_terms = [{'term': w, 'contribution': 1.0, 'tfidf1': 1.0, 'tfidf2': 1.0} 
+                                for w in list(common_words)[:20]]
+                    feature_names = list(all_words)
+                    term_contributions = top_terms
+                    self.logger.warning(f"TF-IDF falló, usando método de respaldo (Jaccard): {e}")
+                except Exception as e2:
+                    similarity = 0
+                    top_terms = []
+                    feature_names = []
+                    term_contributions = []
+                    self.logger.error(f"Error crítico en TF-IDF: {e2}")
         
         elapsed = (datetime.now() - start_time).total_seconds()
         
@@ -534,14 +561,19 @@ class TextSimilarityService:
             processing_time=elapsed
         )
     
-    # ==================== ALGORITMOS IA ====================
-    
     def sentence_bert_similarity(self, text1: str, text2: str) -> SimilarityResult:
         """
-        Algoritmo 5: Sentence-BERT (Embeddings semánticos) + Cosine.
+        Algoritmo 5: Sentence-BERT (Embeddings semánticos).
+        
+        Usa modelos transformer pre-entrenados para generar embeddings semánticos
+        y calcular similitud del coseno. Captura significado, no solo palabras.
+        
+        Args:
+            text1: Primer texto a comparar
+            text2: Segundo texto a comparar
         
         Returns:
-            SimilarityResult con embeddings y explicación semántica
+            SimilarityResult con score de similitud semántica (0-1) e interpretación
         """
         start_time = datetime.now()
         
@@ -554,10 +586,7 @@ class TextSimilarityService:
                 processing_time=0.0
             )
         
-        # Generar embeddings
         embeddings = self.sbert_model.encode([text1, text2], convert_to_numpy=True)
-        
-        # Calcular similitud coseno
         similarity = float(np.dot(embeddings[0], embeddings[1]) / 
                           (np.linalg.norm(embeddings[0]) * np.linalg.norm(embeddings[1])))
         
@@ -591,15 +620,23 @@ class TextSimilarityService:
         """
         Algoritmo 6: LLM-based Similarity usando Ollama (modelo local).
         
-        REQUIERE Ollama instalado y el servidor corriendo.
         Usa un modelo LLM local (Llama 3.2 3B o Mistral 7B) para análisis semántico profundo.
+        El modelo analiza los textos y proporciona un score de similitud con justificación.
+        
+        REQUIERE Ollama instalado y el servidor corriendo.
+        
+        Args:
+            text1: Primer texto a comparar
+            text2: Segundo texto a comparar
+        
+        Returns:
+            SimilarityResult con score de similitud (0-1) y justificación del modelo
         
         Raises:
-            RuntimeError: Si Ollama no está disponible o no se puede conectar.
+            RuntimeError: Si Ollama no está disponible o no se puede conectar
         """
         start_time = datetime.now()
         
-        # Verificar que Ollama esté disponible
         if not OLLAMA_AVAILABLE or not self.ollama_available:
             error_msg = (
                 "Ollama no está disponible. "
@@ -611,15 +648,12 @@ class TextSimilarityService:
             self.logger.error(error_msg)
             raise RuntimeError(error_msg)
         
-        # Preprocesar textos
         prep1 = self.preprocess_text(text1, 'standard')
         prep2 = self.preprocess_text(text2, 'standard')
         
-        # Usar Ollama para análisis de similitud
         try:
             self.logger.info(f"Usando Ollama con modelo {self.ollama_model} para análisis LLM")
             
-            # Verificar que el modelo esté disponible
             if analyze_similarity_with_llm is None:
                 error_msg = (
                     f"No se puede usar Ollama. "
@@ -628,7 +662,6 @@ class TextSimilarityService:
                 self.logger.error(error_msg)
                 raise RuntimeError(error_msg)
             
-            # Usar Ollama para análisis de similitud
             llm_result = analyze_similarity_with_llm(
                 text1=prep1.processed_text,
                 text2=prep2.processed_text,
@@ -647,7 +680,6 @@ class TextSimilarityService:
             justification = llm_result["justification"]
             raw_response = llm_result.get("raw_response", "")
             
-            # Análisis adicional con tokens comunes
             common_topics = self._extract_common_topics(prep1.tokens, prep2.tokens)
             semantic_overlap = len(common_topics) / max(len(set(prep1.tokens)), len(set(prep2.tokens))) if max(len(set(prep1.tokens)), len(set(prep2.tokens))) > 0 else 0
             
@@ -696,10 +728,8 @@ class TextSimilarityService:
             self.logger.error(error_msg)
             raise RuntimeError(error_msg) from e
     
-    # ==================== MÉTODOS AUXILIARES ====================
-    
     def _interpret_semantic_score(self, score: float) -> str:
-        """Interpretar score semántico."""
+        """Interpretar score semántico en categorías."""
         if score >= 0.8:
             return "Very similar (likely same topic and argument)"
         elif score >= 0.6:
@@ -710,19 +740,21 @@ class TextSimilarityService:
             return "Different (distinct topics or arguments)"
     
     def _extract_common_topics(self, tokens1: List[str], tokens2: List[str]) -> set:
-        """Extraer temas comunes (simulado)."""
-        set1, set2 = set(tokens1), set(tokens2)
-        return set1 & set2
+        """Extraer tokens comunes entre dos listas."""
+        return set(tokens1) & set(tokens2)
     
     def analyze_texts_similarity(self, texts: List[str]) -> List[SimilarityResult]:
         """
         Analizar similitud entre múltiples textos usando todos los algoritmos.
         
+        Compara cada par de textos con los 6 algoritmos disponibles y retorna
+        todos los resultados.
+        
         Args:
-            texts: Lista de textos a analizar
+            texts: Lista de textos a analizar (mínimo 2)
             
         Returns:
-            Lista de resultados para cada par
+            Lista de SimilarityResult, uno por algoritmo por cada par de textos
         """
         results = []
         
@@ -730,12 +762,10 @@ class TextSimilarityService:
             self.logger.warning("Need at least 2 texts to compare")
             return results
         
-        # Comparar cada par
         for i in range(len(texts)):
             for j in range(i + 1, len(texts)):
                 text1, text2 = texts[i], texts[j]
                 
-                # Ejecutar todos los algoritmos
                 algorithms = [
                     self.levenshtein_similarity(text1, text2),
                     self.damerau_levenshtein_similarity(text1, text2),

@@ -26,6 +26,16 @@ nltk>=3.8.0
 # Similitud Textual - Algoritmos IA (Opcional pero Recomendado)
 sentence-transformers>=2.2.0
 
+# Clustering Jerárquico (Requerimiento 4)
+scipy>=1.11.0
+
+# Visualización (Requerimiento 5)
+matplotlib>=3.7.0
+wordcloud>=1.9.0
+pillow>=10.0.0
+plotly>=5.17.0
+kaleido>=0.2.1  # Para exportar plotly a PNG
+
 # Cache (Opcional)
 redis>=5.0.0
 

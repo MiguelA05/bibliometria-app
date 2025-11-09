@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """
-Menú interactivo para Bibliometría App
-Permite probar el web scraping y evaluar algoritmos de similitud textual.
+Punto de entrada principal para Bibliometría App
+Combina el menú interactivo y el servidor FastAPI en una sola aplicación.
 """
 
 import os
 import sys
+import subprocess
+import threading
+import time
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 import pandas as pd
@@ -15,8 +18,27 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from app.services.data_unification_service import DataUnificationService
 from app.services.text_similarity_service import TextSimilarityService
+from app.services.word_frequency_service import WordFrequencyService
+from app.services.hierarchical_clustering_service import HierarchicalClusteringService
+from app.services.visualization_service import VisualizationService
 from app.utils.text_extractor import TextExtractor, get_unified_csv_list
 from app.config import settings
+
+# Intentar importar helpers del servidor
+try:
+    from app.utils.server_helper import (
+        check_server_running,
+        start_server,
+        ensure_server_ready,
+        get_server_status
+    )
+    SERVER_HELPER_AVAILABLE = True
+except ImportError:
+    SERVER_HELPER_AVAILABLE = False
+    check_server_running = None
+    start_server = None
+    ensure_server_ready = None
+    get_server_status = None
 
 
 class MenuPrincipal:
@@ -25,7 +47,47 @@ class MenuPrincipal:
     def __init__(self):
         self.unification_service = DataUnificationService()
         self.similarity_service = TextSimilarityService()
+        self.word_frequency_service = WordFrequencyService()
+        self.clustering_service = HierarchicalClusteringService()
+        self.visualization_service = VisualizationService()
         self.text_extractor = TextExtractor()
+        
+        # Iniciar servidor FastAPI automáticamente
+        self._iniciar_servidor_automatico()
+    
+    def _iniciar_servidor_automatico(self):
+        """Iniciar el servidor FastAPI automáticamente al iniciar el menú."""
+        if not SERVER_HELPER_AVAILABLE:
+            print("\n[WARNING] Helper del servidor no disponible")
+            print("[INFO] El servidor FastAPI no se iniciará automáticamente")
+            return
+        
+        print("\n" + "="*70)
+        print("INICIANDO SERVIDOR FASTAPI")
+        print("="*70)
+        
+        if check_server_running():
+            status = get_server_status() if get_server_status else None
+            if status:
+                print(f"[OK] Servidor FastAPI ya está corriendo en {status.get('url', 'N/A')}")
+            else:
+                print("[OK] Servidor FastAPI ya está corriendo")
+        else:
+            print(f"[INFO] Iniciando servidor FastAPI en http://{settings.api_host}:{settings.api_port}...")
+            if ensure_server_ready():
+                status = get_server_status() if get_server_status else None
+                if status:
+                    print(f"[OK] Servidor FastAPI iniciado exitosamente")
+                    print(f"[INFO] URL: {status.get('url', 'N/A')}")
+                    print(f"[INFO] Documentación: {status.get('url', 'N/A')}/docs")
+                else:
+                    print("[OK] Servidor FastAPI iniciado exitosamente")
+            else:
+                print("[WARNING] No se pudo iniciar el servidor FastAPI automáticamente")
+                print("[INFO] Puedes iniciarlo manualmente con: python start.py")
+        
+        print("="*70)
+        time.sleep(1)  # Pausa breve para que el usuario vea el mensaje
         
     def limpiar_pantalla(self):
         """Limpiar la pantalla."""
@@ -34,10 +96,14 @@ class MenuPrincipal:
     def mostrar_banner(self):
         """Mostrar banner del menú."""
         print("\n" + "="*70)
-        print(" " * 20 + "BIBLIOMETRÍA APP")
+        print(" " * 15 + "BIBLIOMETRÍA APP - PUNTO DE ENTRADA UNIFICADO")
         print("="*70)
         print("\nRequerimiento 1: Automatización de descarga y unificación de datos")
         print("Requerimiento 2: Análisis de similitud textual con 6 algoritmos")
+        print("Requerimiento 3: Análisis de frecuencia de palabras")
+        print("Requerimiento 4: Agrupamiento jerárquico de abstracts")
+        print("Requerimiento 5: Análisis visual (mapas, nubes, líneas temporales)")
+        print("API REST: Servidor FastAPI con endpoints para todos los servicios")
         print("="*70 + "\n")
     
     def mostrar_menu_principal(self):
@@ -46,7 +112,10 @@ class MenuPrincipal:
         print("-" * 70)
         print("1. Probar Web Scraping y Generar Resultados (Requerimiento 1)")
         print("2. Evaluar Algoritmos de Similitud Textual (Requerimiento 2)")
-        print("3. Salir")
+        print("3. Análisis de Frecuencia de Palabras (Requerimiento 3)")
+        print("4. Agrupamiento Jerárquico de Abstracts (Requerimiento 4)")
+        print("5. Análisis Visual (Requerimiento 5)")
+        print("6. Salir")
         print("-" * 70)
     
     def mostrar_submenu_scraping(self):
@@ -499,6 +568,247 @@ class MenuPrincipal:
         
         print(f"\n{'-'*70}\n")
     
+    def ejecutar_analisis_frecuencia(self):
+        """Ejecutar análisis de frecuencia de palabras (Requerimiento 3)."""
+        print("\n" + "="*70)
+        print("ANÁLISIS DE FRECUENCIA DE PALABRAS - REQUERIMIENTO 3")
+        print("="*70)
+        
+        # Seleccionar CSV
+        csv_path = self.seleccionar_csv()
+        if not csv_path:
+            input("\nPresiona Enter para continuar...")
+            return
+        
+        print("\n[INFO] Analizando frecuencia de palabras...")
+        print("[INFO] Esto puede tardar unos momentos...")
+        
+        try:
+            # Solicitar parámetros
+            category = input("\nCategoría de análisis [Generative AI in Education]: ").strip()
+            if not category:
+                category = "Generative AI in Education"
+            
+            try:
+                max_words = input("Máximo de palabras asociadas [15]: ").strip()
+                max_words = int(max_words) if max_words else 15
+            except ValueError:
+                max_words = 15
+            
+            # Ejecutar análisis
+            resultado = self.word_frequency_service.analyze_word_frequency(
+                csv_path=csv_path,
+                category=category,
+                max_associated_words=max_words
+            )
+            
+            # Mostrar resultados
+            print("\n" + "="*70)
+            print("RESULTADOS DEL ANÁLISIS DE FRECUENCIA")
+            print("="*70)
+            print(f"\n📊 Categoría: {resultado.category}")
+            print(f"📄 Total de artículos analizados: {resultado.total_articles}")
+            print(f"📝 Total de palabras analizadas: {resultado.total_words_analyzed}")
+            
+            print(f"\n🔤 Palabras de la categoría ({len(resultado.category_words)}):")
+            print("-" * 70)
+            for word in sorted(resultado.category_words):
+                freq = resultado.category_frequencies.get(word, 0)
+                print(f"  • {word}: {freq} apariciones")
+            
+            print(f"\n🔗 Palabras asociadas (Top {len(resultado.associated_words)}):")
+            print("-" * 70)
+            for word, freq, precision in resultado.associated_words:
+                print(f"  • {word}: {freq} apariciones (precisión: {precision:.2%})")
+            
+            # Obtener top palabras de abstracts
+            print(f"\n📈 Top palabras en abstracts:")
+            print("-" * 70)
+            top_abstracts = self.word_frequency_service.get_top_words_from_fields(
+                field="abstract",
+                top_n=15,
+                csv_path=csv_path
+            )
+            for word, count in top_abstracts:
+                print(f"  • {word}: {count} apariciones")
+            
+            print("\n" + "="*70)
+            print("[OK] Análisis completado exitosamente")
+            print("="*70)
+            
+        except Exception as e:
+            print(f"\n[ERROR] Error durante el análisis: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        input("\nPresiona Enter para continuar...")
+    
+    def ejecutar_agrupamiento_jerarquico(self):
+        """Ejecutar agrupamiento jerárquico (Requerimiento 4)."""
+        print("\n" + "="*70)
+        print("AGRUPAMIENTO JERÁRQUICO DE ABSTRACTS - REQUERIMIENTO 4")
+        print("="*70)
+        
+        # Seleccionar CSV
+        csv_path = self.seleccionar_csv()
+        if not csv_path:
+            input("\nPresiona Enter para continuar...")
+            return
+        
+        print("\n[INFO] Configurando parámetros de clustering...")
+        
+        try:
+            # Solicitar parámetros
+            try:
+                limit = input("Límite de documentos [None = todos]: ").strip()
+                limit = int(limit) if limit else None
+            except ValueError:
+                limit = None
+            
+            try:
+                max_features = input("Máximo de características TF-IDF [1500]: ").strip()
+                max_features = int(max_features) if max_features else 1500
+            except ValueError:
+                max_features = 1500
+            
+            methods_input = input("Métodos de linkage [single,complete,average]: ").strip()
+            if methods_input:
+                methods = [m.strip() for m in methods_input.split(",")]
+            else:
+                methods = ["single", "complete", "average"]
+            
+            try:
+                distance_threshold = input("Umbral de distancia [1.0]: ").strip()
+                distance_threshold = float(distance_threshold) if distance_threshold else 1.0
+            except ValueError:
+                distance_threshold = 1.0
+            
+            print("\n[INFO] Ejecutando agrupamiento jerárquico...")
+            print("[INFO] Esto puede tardar varios minutos dependiendo del tamaño del dataset...")
+            
+            # Ejecutar clustering
+            resultados = self.clustering_service.perform_hierarchical_clustering(
+                csv_path=csv_path,
+                limit=limit,
+                max_features=max_features,
+                methods=methods,
+                distance_threshold=distance_threshold
+            )
+            
+            # Mostrar resultados
+            print("\n" + "="*70)
+            print("RESULTADOS DEL AGRUPAMIENTO JERÁRQUICO")
+            print("="*70)
+            
+            best_method = None
+            best_correlation = float("-inf")
+            
+            for method, resultado in resultados.items():
+                print(f"\n📊 Método: {method.upper()} (métrica: {resultado.metric})")
+                print("-" * 70)
+                print(f"  • Dendrograma: {resultado.dendrogram_path}")
+                print(f"  • Número de clusters: {resultado.cluster_count}")
+                print(f"  • Correlación cophenética: {resultado.cophenetic_correlation:.4f}")
+                
+                if resultado.cophenetic_correlation > best_correlation:
+                    best_correlation = resultado.cophenetic_correlation
+                    best_method = method
+            
+            if best_method:
+                print(f"\n🏆 Mejor método: {best_method.upper()} (correlación: {best_correlation:.4f})")
+                print(f"   Dendrograma: {resultados[best_method].dendrogram_path}")
+            
+            print("\n" + "="*70)
+            print("[OK] Agrupamiento completado exitosamente")
+            print("="*70)
+            
+        except Exception as e:
+            print(f"\n[ERROR] Error durante el agrupamiento: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        input("\nPresiona Enter para continuar...")
+    
+    def ejecutar_analisis_visual(self):
+        """Ejecutar análisis visual completo (Requerimiento 5)."""
+        print("\n" + "="*70)
+        print("ANÁLISIS VISUAL - REQUERIMIENTO 5")
+        print("="*70)
+        
+        # Seleccionar CSV
+        csv_path = self.seleccionar_csv()
+        if not csv_path:
+            input("\nPresiona Enter para continuar...")
+            return
+        
+        print("\n[INFO] Configurando análisis visual...")
+        
+        try:
+            # Solicitar parámetros
+            try:
+                limit = input("Límite de artículos [None = todos]: ").strip()
+                limit = int(limit) if limit else None
+            except ValueError:
+                limit = None
+            
+            export_pdf_input = input("Exportar a PDF [S/n]: ").strip().lower()
+            export_pdf = export_pdf_input != 'n'
+            
+            print("\n[INFO] Generando visualizaciones...")
+            print("[INFO] Esto incluye:")
+            print("  • Mapa de calor geográfico")
+            print("  • Nubes de palabras (abstracts, keywords, combinada)")
+            print("  • Línea temporal de publicaciones")
+            if export_pdf:
+                print("  • Exportación a PDF")
+            print("\n[INFO] Esto puede tardar varios minutos...")
+            
+            # Suprimir logs JSON durante la ejecución
+            import logging
+            import structlog
+            original_level = logging.getLogger().level
+            logging.getLogger().setLevel(logging.WARNING)
+            
+            try:
+                # Ejecutar visualizaciones
+                resultado = self.visualization_service.generate_all_visualizations(
+                    csv_path=csv_path,
+                    limit=limit,
+                    export_pdf=export_pdf
+                )
+            finally:
+                # Restaurar nivel de logging
+                logging.getLogger().setLevel(original_level)
+            
+            # Mostrar resultados
+            print("\n" + "="*70)
+            print("RESULTADOS DEL ANÁLISIS VISUAL")
+            print("="*70)
+            print(f"\n🗺️  Mapa de calor geográfico:")
+            print(f"   {resultado.heatmap_path}")
+            
+            print(f"\n☁️  Nubes de palabras:")
+            for field, path in resultado.wordcloud_paths.items():
+                print(f"   • {field}: {path}")
+            
+            print(f"\n📈 Línea temporal:")
+            print(f"   {resultado.timeline_path}")
+            
+            if resultado.pdf_path:
+                print(f"\n📄 Reporte PDF combinado:")
+                print(f"   {resultado.pdf_path}")
+            
+            print("\n" + "="*70)
+            print("[OK] Análisis visual completado exitosamente")
+            print("="*70)
+            
+        except Exception as e:
+            print(f"\n[ERROR] Error durante el análisis visual: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        input("\nPresiona Enter para continuar...")
+    
     def ejecutar(self):
         """Ejecutar el menú principal."""
         csv_seleccionado = None
@@ -556,6 +866,18 @@ class MenuPrincipal:
                         print("[ERROR] Opción inválida")
             
             elif opcion == "3":
+                # Análisis de frecuencia de palabras
+                self.ejecutar_analisis_frecuencia()
+            
+            elif opcion == "4":
+                # Agrupamiento jerárquico
+                self.ejecutar_agrupamiento_jerarquico()
+            
+            elif opcion == "5":
+                # Análisis visual
+                self.ejecutar_analisis_visual()
+            
+            elif opcion == "6":
                 print("\n[INFO] Saliendo...")
                 break
             else:

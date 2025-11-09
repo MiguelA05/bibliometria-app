@@ -1,15 +1,15 @@
 """
 Servicio para agrupamiento jerárquico de abstracts.
-Requerimiento 4: Implementar 3 algoritmos de agrupamiento jerárquico con dendrogramas.
+
+Requerimiento 4: Implementar algoritmos de agrupamiento jerárquico (single, complete, average)
+con generación de dendrogramas y evaluación de calidad de clusters.
 """
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Sequence, Tuple, Optional, Dict, Any
-from datetime import datetime
 
 try:
     from scipy.cluster import hierarchy
@@ -34,8 +34,14 @@ except ImportError:
 
 from app.utils.logger import get_logger
 from app.utils.csv_reader import read_unified_csv, resolve_column_index, normalize_header
-from app.services.word_frequency_service import DEFAULT_STOPWORDS
 from app.config import settings
+
+DEFAULT_STOPWORDS = {
+    'the', 'and', 'of', 'in', 'to', 'a', 'is', 'for', 'on', 'that', 'with', 'as',
+    'by', 'an', 'are', 'this', 'from', 'be', 'at', 'or', 'we', 'it', 'which',
+    'can', 'has', 'have', 'these', 'their', 'our', 'was', 'were', 'will', 'such',
+    'but', 'not', 'they', 'its', 'may', 'also', 'more', 'other', 'than'
+}
 
 
 @dataclass
@@ -60,9 +66,15 @@ class ClusteringResult:
 
 
 class HierarchicalClusteringService:
-    """Servicio para agrupamiento jerárquico de abstracts."""
+    """
+    Servicio para agrupamiento jerárquico de abstracts.
+    
+    Implementa clustering jerárquico usando métodos de linkage (single, complete, average, ward)
+    con vectorización TF-IDF, generación de dendrogramas y evaluación de calidad.
+    """
     
     def __init__(self):
+        """Inicializar el servicio de clustering jerárquico."""
         self.logger = get_logger("hierarchical_clustering")
         
         if not SCIPY_AVAILABLE:
@@ -86,22 +98,29 @@ class HierarchicalClusteringService:
         drop_duplicates: bool = True
     ) -> Dict[str, ClusteringResult]:
         """
-        Realizar agrupamiento jerárquico con múltiples métodos.
+        Realizar agrupamiento jerárquico con múltiples métodos de linkage.
+        
+        Vectoriza documentos con TF-IDF, calcula linkage jerárquico, genera dendrogramas
+        y evalúa la calidad de clusters usando correlación cophenética.
         
         Args:
-            csv_path: Ruta al CSV unificado
-            text_field: Campo de texto a analizar
-            label_field: Campo para etiquetas
-            limit: Límite de documentos a procesar
-            min_chars: Longitud mínima de texto
-            max_features: Máximo de características TF-IDF
+            csv_path: Ruta al CSV unificado (opcional)
+            text_field: Campo de texto a analizar (default: "abstract")
+            label_field: Campo para etiquetas (default: "title")
+            limit: Límite de documentos a procesar (opcional)
+            min_chars: Longitud mínima de texto (default: 40)
+            max_features: Máximo de características TF-IDF (default: 1500)
             methods: Lista de métodos de linkage (default: ["single", "complete", "average"])
-            distance_threshold: Umbral de distancia para clusters
-            output_dir: Directorio de salida
-            drop_duplicates: Eliminar duplicados
+            distance_threshold: Umbral de distancia para clusters (default: 1.0)
+            output_dir: Directorio de salida (opcional)
+            drop_duplicates: Eliminar duplicados (default: True)
         
         Returns:
-            Diccionario con resultados por método
+            Diccionario con ClusteringResult por método, marcando el mejor método
+        
+        Raises:
+            ImportError: Si SciPy o scikit-learn no están disponibles
+            ValueError: Si el método de linkage no es válido o no hay datos suficientes
         """
         if not SCIPY_AVAILABLE or not SKLEARN_AVAILABLE:
             raise ImportError("SciPy y scikit-learn son requeridos para clustering jerárquico")
@@ -116,7 +135,6 @@ class HierarchicalClusteringService:
         
         methods = [m.lower() for m in methods]
         
-        # Recopilar documentos
         documents = self._collect_documents(
             csv_path=csv_path,
             text_field=text_field,
@@ -128,20 +146,18 @@ class HierarchicalClusteringService:
         
         self.logger.info(f"Documentos cargados: {len(documents)}")
         
-        # Vectorizar documentos
-        dense_matrix, vectorizer = self._vectorize_documents(
+        dense_matrix, _ = self._vectorize_documents(
             documents, max_features=max_features
         )
         
         labels = [f"{doc.row_index}. {doc.label}" for doc in documents]
         
-        # Número máximo de hojas para dendrograma (visualización)
         max_for_dendrogram = 30
         if len(documents) > max_for_dendrogram:
             self.logger.info(f"Generando dendrogramas usando muestra de {max_for_dendrogram} documentos")
         
         if output_dir is None:
-            output_dir = Path(settings.results_dir) / "reports"
+            output_dir = Path(settings.results_dir) / "reports" / "clustering"
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         
@@ -153,12 +169,10 @@ class HierarchicalClusteringService:
             metric = "euclidean" if method == "ward" else "cosine"
             self.logger.info(f"Ejecutando método: {method} (métrica: {metric})")
             
-            # Calcular linkage
             linkage_matrix, distance_vector = self._compute_linkage(
                 dense_matrix, method=method, metric=metric
             )
             
-            # Generar dendrograma
             sample_n = min(len(documents), max_for_dendrogram)
             if sample_n >= 2 and sample_n < len(documents):
                 linkage_sample, _ = self._compute_linkage(
@@ -173,12 +187,10 @@ class HierarchicalClusteringService:
                     linkage_matrix, labels, method, metric, output_dir
                 )
             
-            # Asignar clusters
             cluster_assignments = hierarchy.fcluster(
                 linkage_matrix, t=distance_threshold, criterion="distance"
             )
             
-            # Evaluar calidad
             clusters = self._summarize_clusters(cluster_assignments, labels)
             metrics = self._evaluate_cluster_quality(
                 dense_matrix, cluster_assignments, metric,
@@ -201,7 +213,6 @@ class HierarchicalClusteringService:
                 best_cophenetic = metrics["cophenetic_correlation"]
                 best_method = method
         
-        # Marcar el mejor método
         if best_method:
             results[best_method].best_method = best_method
             self.logger.info(
@@ -219,7 +230,7 @@ class HierarchicalClusteringService:
         min_chars: int,
         drop_duplicates: bool
     ) -> List[DocumentRecord]:
-        """Recopilar y filtrar documentos."""
+        """Recopilar y filtrar documentos del CSV unificado."""
         rows = read_unified_csv(csv_path)
         if not rows or len(rows) < 2:
             raise ValueError("El CSV unificado no contiene datos suficientes.")
@@ -264,7 +275,7 @@ class HierarchicalClusteringService:
         return documents
     
     def _build_vectorizer(self, stopwords: Optional[Sequence[str]] = None, max_features: int = 1500) -> TfidfVectorizer:
-        """Crear TfidfVectorizer."""
+        """Crear y configurar TfidfVectorizer."""
         token_pattern = r"(?u)[\wÀ-ÖØ-öø-ÿ]{2,}"
         stop_words = sorted(set(stopwords)) if stopwords else None
         
@@ -344,7 +355,7 @@ class HierarchicalClusteringService:
         return output_path
     
     def _truncate_label(self, label: str, max_chars: int = 50) -> str:
-        """Truncar etiquetas largas."""
+        """Truncar etiquetas largas para visualización en dendrograma."""
         if len(label) <= max_chars:
             return label
         return label[:max_chars - 1].rstrip() + "…"
@@ -354,7 +365,7 @@ class HierarchicalClusteringService:
         cluster_assignments: Sequence[int],
         labels: Sequence[str]
     ) -> List[Tuple[int, List[str]]]:
-        """Resumir clusters con sus miembros."""
+        """Agrupar etiquetas por cluster y ordenar por tamaño descendente."""
         groups: Dict[int, List[str]] = {}
         
         for cluster_id, label in zip(cluster_assignments, labels):
@@ -371,7 +382,7 @@ class HierarchicalClusteringService:
         linkage_matrix: Any,
         distance_vector: Any
     ) -> Dict[str, Any]:
-        """Evaluar calidad de clusters."""
+        """Evaluar calidad de clusters usando correlación cophenética."""
         unique_clusters = set(cluster_assignments)
         cluster_count = len(unique_clusters)
         cophenetic_corr, _ = hierarchy.cophenet(linkage_matrix, distance_vector)
