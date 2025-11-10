@@ -9,6 +9,8 @@ import re
 from typing import List, Dict, Tuple, Optional, Set
 from collections import Counter
 from dataclasses import dataclass
+from pathlib import Path
+from datetime import datetime
 
 try:
     import nltk
@@ -18,8 +20,17 @@ try:
 except ImportError:
     NLTK_AVAILABLE = False
 
+try:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    MATPLOTLIB_AVAILABLE = True
+except ImportError:
+    MATPLOTLIB_AVAILABLE = False
+
 from app.utils.logger import get_logger
 from app.utils.csv_reader import read_unified_csv, resolve_column_index, normalize_header
+from app.config import settings
 
 
 @dataclass
@@ -31,6 +42,7 @@ class WordFrequencyResult:
     associated_words: List[Tuple[str, int, float]]  # (word, frequency, precision)
     total_articles: int
     total_words_analyzed: int
+    chart_paths: Optional[Dict[str, str]] = None  # Rutas de gráficos generados
 
 
 DEFAULT_STOPWORDS = {
@@ -86,7 +98,9 @@ class WordFrequencyService:
         csv_path: Optional[str] = None,
         category: str = "Concepts of Generative AI in Education",
         max_associated_words: int = 15,
-        text_field: str = "abstract"
+        text_field: str = "abstract",
+        generate_charts: bool = True,
+        output_dir: Optional[Path] = None
     ) -> WordFrequencyResult:
         """
         Analizar frecuencia de palabras en abstracts.
@@ -134,13 +148,27 @@ class WordFrequencyService:
         
         total_words = sum(len(self._tokenize(abstract)) for abstract in abstracts)
         
+        # Generar gráficos si se solicita
+        chart_paths = None
+        if generate_charts:
+            try:
+                chart_paths = self._generate_frequency_charts(
+                    category_frequencies,
+                    associated_words_with_precision,
+                    category,
+                    output_dir
+                )
+            except Exception as e:
+                self.logger.warning(f"No se pudieron generar gráficos: {e}")
+        
         return WordFrequencyResult(
             category=category,
             category_words=list(category_words),
             category_frequencies=category_frequencies,
             associated_words=associated_words_with_precision,
             total_articles=len(abstracts),
-            total_words_analyzed=total_words
+            total_words_analyzed=total_words,
+            chart_paths=chart_paths
         )
     
     def get_top_words_from_fields(
@@ -296,6 +324,10 @@ class WordFrequencyService:
         
         La precisión es la proporción de apariciones de una palabra que ocurren
         cerca de palabras de categoría (ventana de ±5 palabras) sobre su frecuencia total.
+        
+        Interpretación:
+        - 100%: La palabra SIEMPRE aparece cerca de palabras de categoría
+        - <100%: La palabra aparece en otros contextos también (palabras más generales)
         """
         results = []
         
@@ -308,24 +340,156 @@ class WordFrequencyService:
                 tokens_lower = [t.lower() for t in tokens]
                 
                 if word.lower() in tokens_lower:
-                    total_freq += tokens_lower.count(word.lower())
+                    # Contar todas las apariciones de la palabra en este abstract
+                    word_count = tokens_lower.count(word.lower())
+                    total_freq += word_count
                     
+                    # Obtener posiciones de la palabra y de palabras de categoría
                     word_positions = [i for i, t in enumerate(tokens_lower) if t == word.lower()]
                     category_positions = []
                     for i, token in enumerate(tokens_lower):
                         for cat_word in category_words:
+                            # Verificar si el token contiene o es parte de una palabra de categoría
                             if cat_word.lower() in token or token in cat_word.lower():
                                 category_positions.append(i)
                                 break
                     
+                    # Verificar para cada aparición de la palabra si está cerca de categoría
                     window = 5
                     for wp in word_positions:
+                        found_near_category = False
                         for cp in category_positions:
                             if abs(wp - cp) <= window:
                                 freq_with_category_actual += 1
-                                break
+                                found_near_category = True
+                                break  # Solo contar una vez por aparición de palabra
             
             precision = freq_with_category_actual / total_freq if total_freq > 0 else 0.0
             results.append((word, freq_with_category, precision))
         
         return results
+    
+    def _generate_frequency_charts(
+        self,
+        category_frequencies: Dict[str, int],
+        associated_words: List[Tuple[str, int, float]],
+        category: str,
+        output_dir: Optional[Path] = None
+    ) -> Dict[str, str]:
+        """
+        Generar gráficos de barras para frecuencias de palabras.
+        
+        Genera dos gráficos:
+        1. Top palabras de la categoría (por frecuencia)
+        2. Top palabras asociadas (por frecuencia)
+        
+        Args:
+            category_frequencies: Frecuencias de palabras de la categoría
+            associated_words: Lista de palabras asociadas con frecuencia y precisión
+            category: Nombre de la categoría
+            output_dir: Directorio de salida (opcional)
+        
+        Returns:
+            Diccionario con rutas de los gráficos generados
+        """
+        if not MATPLOTLIB_AVAILABLE:
+            self.logger.warning("matplotlib no está disponible, no se generarán gráficos")
+            return {}
+        
+        if output_dir is None:
+            output_dir = Path(settings.results_dir) / "reports" / "word_frequency"
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        chart_paths = {}
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Gráfico 1: Top palabras de la categoría
+        if category_frequencies:
+            # Ordenar por frecuencia descendente y tomar top 15
+            sorted_category = sorted(
+                category_frequencies.items(),
+                key=lambda x: x[1],
+                reverse=True
+            )[:15]
+            
+            if sorted_category:
+                words, freqs = zip(*sorted_category)
+                
+                fig, ax = plt.subplots(figsize=(12, 8))
+                bars = ax.barh(range(len(words)), freqs, color='steelblue', alpha=0.7)
+                ax.set_yticks(range(len(words)))
+                ax.set_yticklabels(words, fontsize=10)
+                ax.set_xlabel('Frecuencia de Aparición', fontsize=12, fontweight='bold')
+                ax.set_title(
+                    f'Top Palabras de la Categoría: {category}',
+                    fontsize=14,
+                    fontweight='bold',
+                    pad=20
+                )
+                ax.grid(axis='x', alpha=0.3, linestyle='--')
+                
+                # Agregar valores en las barras
+                for i, (bar, freq) in enumerate(zip(bars, freqs)):
+                    ax.text(
+                        freq + max(freqs) * 0.01,
+                        i,
+                        str(freq),
+                        va='center',
+                        fontsize=9,
+                        fontweight='bold'
+                    )
+                
+                plt.tight_layout()
+                chart_path_1 = output_dir / f"category_words_frequency_{timestamp}.png"
+                fig.savefig(chart_path_1, dpi=200, bbox_inches='tight')
+                plt.close(fig)
+                chart_paths['category_words'] = str(chart_path_1)
+                self.logger.info(f"Gráfico de palabras de categoría guardado: {chart_path_1}")
+        
+        # Gráfico 2: Top palabras asociadas
+        if associated_words:
+            # Ordenar por frecuencia descendente y tomar top 15
+            sorted_associated = sorted(
+                associated_words,
+                key=lambda x: x[1],  # Ordenar por frecuencia
+                reverse=True
+            )[:15]
+            
+            if sorted_associated:
+                words, freqs, precisions = zip(*sorted_associated)
+                
+                fig, ax = plt.subplots(figsize=(12, 8))
+                bars = ax.barh(range(len(words)), freqs, color='coral', alpha=0.7)
+                ax.set_yticks(range(len(words)))
+                ax.set_yticklabels(words, fontsize=10)
+                ax.set_xlabel('Frecuencia de Aparición', fontsize=12, fontweight='bold')
+                ax.set_title(
+                    f'Top Palabras Asociadas (Generadas) - {category}',
+                    fontsize=14,
+                    fontweight='bold',
+                    pad=20
+                )
+                ax.grid(axis='x', alpha=0.3, linestyle='--')
+                
+                # Agregar valores en las barras (frecuencia y precisión)
+                # La precisión indica qué % de apariciones están cerca de palabras de categoría
+                for i, (bar, freq, precision) in enumerate(zip(bars, freqs, precisions)):
+                    label = f"{freq} (precisión: {precision:.1%})"
+                    ax.text(
+                        freq + max(freqs) * 0.01,
+                        i,
+                        label,
+                        va='center',
+                        fontsize=9,
+                        fontweight='bold'
+                    )
+                
+                plt.tight_layout()
+                chart_path_2 = output_dir / f"associated_words_frequency_{timestamp}.png"
+                fig.savefig(chart_path_2, dpi=200, bbox_inches='tight')
+                plt.close(fig)
+                chart_paths['associated_words'] = str(chart_path_2)
+                self.logger.info(f"Gráfico de palabras asociadas guardado: {chart_path_2}")
+        
+        return chart_paths

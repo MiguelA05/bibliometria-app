@@ -635,11 +635,12 @@ class MenuPrincipal:
             except ValueError:
                 max_words = 15
             
-            # Ejecutar análisis
+            # Ejecutar análisis con generación de gráficos
             resultado = self.word_frequency_service.analyze_word_frequency(
                 csv_path=csv_path,
                 category=category,
-                max_associated_words=max_words
+                max_associated_words=max_words,
+                generate_charts=True
             )
             
             # Mostrar resultados
@@ -672,6 +673,15 @@ class MenuPrincipal:
             for word, count in top_abstracts:
                 print(f"  • {word}: {count} apariciones")
             
+            # Mostrar gráficos generados
+            if resultado.chart_paths:
+                print(f"\n📊 Gráficos generados:")
+                print("-" * 70)
+                if 'category_words' in resultado.chart_paths:
+                    print(f"  • Palabras de categoría: {resultado.chart_paths['category_words']}")
+                if 'associated_words' in resultado.chart_paths:
+                    print(f"  • Palabras asociadas: {resultado.chart_paths['associated_words']}")
+            
             print("\n" + "="*70)
             print("[OK] Análisis completado exitosamente")
             print("="*70)
@@ -696,14 +706,19 @@ class MenuPrincipal:
             return
         
         print("\n[INFO] Configurando parámetros de clustering...")
+        print("[INFO] Nota: Se recomienda usar 30-50 artículos para dendrogramas legibles")
         
         try:
             # Solicitar parámetros
             try:
-                limit = input("Límite de documentos [None = todos]: ").strip()
-                limit = int(limit) if limit else None
+                limit_input = input("Cantidad de artículos para análisis [30]: ").strip()
+                if limit_input:
+                    limit = int(limit_input)
+                else:
+                    limit = 30  # Valor por defecto: 30 artículos
             except ValueError:
-                limit = None
+                print("[WARNING] Valor inválido, usando 30 artículos por defecto")
+                limit = 30
             
             try:
                 max_features = input("Máximo de características TF-IDF [1500]: ").strip()
