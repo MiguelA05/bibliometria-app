@@ -171,6 +171,9 @@ bash scripts/install_ollama.sh
 
 # O manualmente
 curl -fsSL https://ollama.com/install.sh | sh
+#Se puede usar tambien homebrew si se desea
+brew install ollama
+
 ollama serve  # En otra terminal
 ollama pull llama3.2:3b  # Descargar modelo
 ```
