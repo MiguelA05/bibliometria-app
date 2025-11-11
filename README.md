@@ -141,9 +141,16 @@ venv\Scripts\activate
 # Instalar todas las dependencias
 pip install -r requirements.txt
 
+# Si pip no funciona, usa el módulo de Python:
+python -m pip install -r requirements.txt
+# O con Python 3:
+python3 -m pip install -r requirements.txt
+
 # Descargar datos de NLTK (OBLIGATORIO para similitud textual)
 python -m nltk.downloader punkt stopwords
 ```
+
+**⚠️ Problema con pip?** Si `pip` no está instalado o no se reconoce, consulta la [guía de solución de problemas](docs/solucion_problemas_pip.md).
 
 **Dependencias Principales**:
 - **Framework Web**: FastAPI, Uvicorn
@@ -157,6 +164,7 @@ python -m nltk.downloader punkt stopwords
 
 Para usar el algoritmo de similitud basado en LLM (Requerimiento 2), necesitas instalar Ollama:
 
+**Linux/Mac:**
 ```bash
 # Método automático (recomendado)
 bash scripts/install_ollama.sh
@@ -167,7 +175,23 @@ ollama serve  # En otra terminal
 ollama pull llama3.2:3b  # Descargar modelo
 ```
 
+**Windows:**
+```powershell
+# Método automático con PowerShell (recomendado)
+powershell -ExecutionPolicy Bypass -File scripts/install_ollama.ps1
+
+# O ejecutar el script .bat
+scripts\install_ollama.bat
+
+# O manualmente:
+# 1. Descargar desde https://ollama.com/download
+# 2. Ejecutar OllamaSetup.exe
+# 3. Descargar modelo: ollama pull llama3.2:3b
+```
+
 **Nota**: Si Ollama no está instalado, el algoritmo LLM-based no estará disponible, pero los otros 5 algoritmos funcionarán normalmente.
+
+**Ver guía detallada para Windows**: Ver [docs/instalacion_ollama_windows.md](docs/instalacion_ollama_windows.md)
 
 #### 5. Configurar Entorno
 
